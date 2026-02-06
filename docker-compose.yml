@@ -1,0 +1,70 @@
+services:
+  enrichment:
+    build:
+      context: .
+      dockerfile: enrichment/Dockerfile
+    ports:
+      - "50051:50051"
+    volumes:
+      # Mount source code for hot reloading
+      - ./enrichment/main.py:/app/main.py
+      - ./enrichment/pyproject.toml:/app/pyproject.toml
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+  recon:
+    build:
+      context: .
+      dockerfile: recon/Dockerfile
+    ports:
+      - "50052:50052"
+    volumes:
+      # Mount source code for hot reloading
+      - ./recon/main.py:/app/main.py
+      - ./recon/requirements.txt:/app/requirements.txt
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount source code for hot reloading
+      - ./backend/main.py:/app/main.py
+      - ./backend/pyproject.toml:/app/pyproject.toml
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - enrichment
+      - recon
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    volumes:
+      # Mount source code for hot reloading
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.js:/app/vite.config.js
+      - ./frontend/svelte.config.js:/app/svelte.config.js
+      # Exclude node_modules to avoid conflicts
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  default:
+    name: leadmaker-network
