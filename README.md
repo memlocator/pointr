@@ -37,20 +37,81 @@ A geospatial data platform for discovering, analyzing, and investigating busines
 
 ## Architecture
 
-```
-Frontend (Svelte 5)
-    ↓ HTTP/REST
-Backend (FastAPI)
-    ↓ gRPC
-    ├── Enrichment Service (port 50051) → OpenStreetMap Overpass API
-    └── Recon Service (port 50052) → crt.sh, WHOIS, DNS, Team Cymru
+```mermaid
+flowchart TB
+    User([User])
+
+    subgraph Frontend["Frontend :5173<br/>(Svelte 5 + MapLibre GL)"]
+        MapView[Map View<br/>Draw Polygons/Circles]
+        ListView[List View<br/>Search & Filter]
+        ContactsView[Contacts View<br/>Contact Info Only]
+        ReconView[Recon View<br/>Network Analysis]
+    end
+
+    subgraph Backend["Backend :8000<br/>(FastAPI REST API)"]
+        API[REST Endpoints<br/>/api/enrich<br/>/api/recon<br/>/api/search]
+    end
+
+    subgraph Services["Microservices"]
+        Enrichment[Enrichment :50051<br/>gRPC Service]
+        Recon[Recon :50052<br/>gRPC Service]
+    end
+
+    subgraph External["External APIs"]
+        OSM[OpenStreetMap<br/>Overpass API]
+        Nominatim[Nominatim<br/>Geocoding API]
+        CrtSh[crt.sh<br/>Certificate Transparency]
+        DNS[DNS Servers<br/>dnspython]
+        WHOIS[WHOIS Servers<br/>python-whois]
+        Cymru[Team Cymru<br/>ASN Lookup]
+    end
+
+    User -->|Draws polygons<br/>Searches locations| MapView
+    User -->|Filters & searches<br/>Selects businesses| ListView
+    User -->|Views contacts<br/>Selects businesses| ContactsView
+    User -->|Views recon results| ReconView
+
+    MapView -->|POST /api/map/enrich| API
+    MapView -->|GET /api/search| API
+    ListView -->|POST /api/recon| API
+    ContactsView -->|POST /api/recon| API
+
+    API -->|gRPC EnrichPolygon| Enrichment
+    API -->|gRPC RunRecon| Recon
+    API -->|HTTP GET| Nominatim
+
+    Enrichment -->|HTTP POST| OSM
+    Recon -->|HTTP GET| CrtSh
+    Recon -->|DNS Queries| DNS
+    Recon -->|WHOIS Queries| WHOIS
+    Recon -->|DNS Queries| Cymru
+
+    OSM -.->|Business data| Enrichment
+    CrtSh -.->|SSL certs & subdomains| Recon
+    DNS -.->|DNS records| Recon
+    WHOIS -.->|Domain info| Recon
+    Cymru -.->|ASN info| Recon
+
+    Enrichment -.->|gRPC Response| API
+    Recon -.->|gRPC Response| API
+    Nominatim -.->|Location results| API
+
+    API -.->|JSON Response| MapView
+    API -.->|JSON Response| ListView
+    API -.->|JSON Response| ContactsView
+
+    style User fill:#f97316,stroke:#ea580c,color:#fff
+    style Frontend fill:#1f2937,stroke:#374151,color:#fff
+    style Backend fill:#1f2937,stroke:#374151,color:#fff
+    style Services fill:#1f2937,stroke:#374151,color:#fff
+    style External fill:#374151,stroke:#4b5563,color:#fff
 ```
 
 **Data Flow:**
 
-1. **Map Enrichment**: Frontend draws polygon → Backend REST → Enrichment gRPC → OSM Overpass → Business data returned
-2. **Reconnaissance**: User selects businesses → Backend REST → Recon gRPC → Free network tools → Recon data returned
-3. **Location Search**: User searches → Backend REST → Nominatim API → Location results returned
+1. **Map Enrichment**: User draws polygon → Frontend → Backend REST → Enrichment gRPC → OSM Overpass → Business data returned
+2. **Reconnaissance**: User selects businesses → Frontend → Backend REST → Recon gRPC → Free network tools → Recon data returned
+3. **Location Search**: User searches → Frontend → Backend REST → Nominatim API → Location results returned
 
 ## Project Structure
 
