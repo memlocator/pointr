@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package recon;
+
+// Service definition for network reconnaissance
+service ReconService {
+  rpc RunRecon (ReconRequest) returns (ReconResponse);
+}
+
+// Recon request message
+message ReconRequest {
+  repeated string domains = 1;
+}
+
+// DNS record
+message DNSRecord {
+  string type = 1;
+  string value = 2;
+  int32 ttl = 3;
+}
+
+// SSL certificate info from crt.sh
+message SSLCertificate {
+  string issuer = 1;
+  string subject = 2;
+  string not_before = 3;
+  string not_after = 4;
+  repeated string san_domains = 5;
+}
+
+// Security headers
+message SecurityHeaders {
+  string strict_transport_security = 1;
+  string content_security_policy = 2;
+  string x_frame_options = 3;
+  string x_content_type_options = 4;
+  string referrer_policy = 5;
+  string permissions_policy = 6;
+}
+
+// WHOIS data
+message WhoisData {
+  string registrar = 1;
+  string creation_date = 2;
+  string expiration_date = 3;
+  repeated string name_servers = 4;
+  string registrant_org = 5;
+  string status = 6;
+}
+
+// ASN information
+message ASNInfo {
+  string asn = 1;
+  string organization = 2;
+  repeated string ip_ranges = 3;
+  string country = 4;
+}
+
+// Domain recon result
+message DomainRecon {
+  string domain = 1;
+  repeated DNSRecord dns_records = 2;
+  repeated SSLCertificate ssl_certificates = 3;
+  SecurityHeaders security_headers = 4;
+  WhoisData whois = 5;
+  ASNInfo asn_info = 6;
+  repeated string subdomains = 7;
+  string error = 8;
+}
+
+// Recon response
+message ReconResponse {
+  repeated DomainRecon results = 1;
+}
