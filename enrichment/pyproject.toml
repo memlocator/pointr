@@ -1,0 +1,15 @@
+[project]
+name = "enrichment"
+version = "0.1.0"
+description = "Map polygon enrichment service"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "grpcio>=1.70.0",
+    "grpcio-tools>=1.70.0",
+    "shapely>=2.0.6",
+    "httpx>=0.28.1",
+]
+
+[project.scripts]
+enrichment = "main:serve"
