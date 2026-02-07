@@ -4,6 +4,8 @@
   import MapboxDraw from '@mapbox/mapbox-gl-draw'
   import circle from '@turf/circle'
   import { BUSINESS_CATEGORIES, generateColorExpression } from './businessCategories.js'
+  import LocationSearchBar from './components/LocationSearchBar.svelte'
+  import DrawingToolbar from './components/DrawingToolbar.svelte'
 
   let {
     businesses = $bindable([]),
@@ -17,51 +19,14 @@
   let map
   let draw
   let isEnriching = $state(false)
-  let locationSearch = $state('')
-  let searchResults = $state([])
-  let isSearching = $state(false)
-  let searchTimeout = null
 
-  async function searchLocation() {
-    // Clear previous timeout
-    if (searchTimeout) {
-      clearTimeout(searchTimeout)
-    }
-
-    if (!locationSearch || locationSearch.length < 3) {
-      searchResults = []
-      return
-    }
-
-    // Debounce: wait 1000ms after user stops typing
-    searchTimeout = setTimeout(async () => {
-      isSearching = true
-      try {
-        const response = await fetch(`http://localhost:8000/api/search?q=${encodeURIComponent(locationSearch)}`)
-        if (response.ok) {
-          const data = await response.json()
-          searchResults = data.results
-        } else {
-          searchResults = []
-        }
-      } catch (error) {
-        console.error('Search error:', error)
-        searchResults = []
-      } finally {
-        isSearching = false
-      }
-    }, 1000)
-  }
-
-  function selectSearchResult(result) {
+  function handleLocationSelect(result) {
     if (map) {
       map.flyTo({
         center: [result.lon, result.lat],
         zoom: 15,
         duration: 1500
       })
-      searchResults = []
-      locationSearch = ''
     }
   }
 
@@ -117,21 +82,12 @@
     )
   }
 
-  function getPolygonLabel(polygon, index) {
-    // Try to generate a meaningful label
-    if (polygon.properties?.name) {
-      return polygon.properties.name
-    }
-    return `Polygon ${index + 1}`
-  }
-
   let isDrawingCircle = $state(false)
   let isDrawingPolygon = $state(false)
   let circleCenter = null
   let circleClickHandler = null
   let circleMoveHandler = null
   let previewCircleSource = null
-  let showPolygonList = $state(false)
 
   function startPolygonDrawing() {
     if (draw) {
@@ -685,158 +641,22 @@
   <div bind:this={mapContainer} class="w-full h-full"></div>
 
   <!-- Location search -->
-  <div class="absolute top-4 right-16 w-80" style="z-index: 1000;">
-    <div class="relative">
-      <input
-        type="text"
-        bind:value={locationSearch}
-        oninput={searchLocation}
-        placeholder="Search location (min 3 chars)..."
-        class="w-full px-4 py-2 bg-gray-900 border-2 border-gray-700 text-gray-200 placeholder-gray-500 text-sm focus:border-orange-500 focus:outline-none"
-      />
-      {#if isSearching}
-        <div class="absolute right-3 top-2.5">
-          <svg class="animate-spin h-5 w-5 text-orange-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-        </div>
-      {/if}
-    </div>
-
-    {#if searchResults.length > 0}
-      <div class="mt-1 bg-gray-900 border-2 border-gray-700 max-h-64 overflow-y-auto">
-        {#each searchResults as result}
-          <button
-            onclick={() => selectSearchResult(result)}
-            class="w-full text-left px-4 py-2 hover:bg-gray-800 border-b border-gray-800 last:border-0 transition-colors"
-          >
-            <p class="text-sm text-gray-200 font-medium">{result.display_name.split(',')[0]}</p>
-            <p class="text-xs text-gray-500 truncate">{result.display_name}</p>
-          </button>
-        {/each}
-      </div>
-    {/if}
-  </div>
+  <LocationSearchBar onLocationSelect={handleLocationSelect} />
 
   <!-- Custom drawing controls -->
-  <div class="absolute flex flex-col gap-2" style="top: 10px; left: 10px; z-index: 1000; pointer-events: auto;">
-    <!-- Drawing tools -->
-    <div class="bg-gray-900 border-2 border-gray-700 flex flex-col relative">
-      <!-- Polygon List Button -->
-      {#if polygons.length > 0}
-        <button
-          onclick={() => showPolygonList = !showPolygonList}
-          class={`w-8 h-8 flex items-center justify-center transition-colors duration-200 ${
-            showPolygonList
-              ? 'bg-gray-700 border-l-2 border-orange-500'
-              : 'bg-gray-900 hover:bg-gray-800'
-          }`}
-          title={`${polygons.length} polygon${polygons.length > 1 ? 's' : ''}`}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class={showPolygonList ? 'text-orange-500' : 'text-white'}>
-            <path d="M2 4 L14 4 M2 8 L14 8 M2 12 L14 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-        </button>
-
-        <!-- Dropdown List -->
-        {#if showPolygonList}
-          <div class="absolute top-0 left-full ml-2 bg-gray-900 border-2 border-gray-700 shadow-lg" style="max-height: 200px; min-width: 200px; z-index: 2000;">
-            <div class="overflow-y-auto" style="max-height: 200px;">
-              {#each polygons as polygon, index (polygon.id)}
-                <div class="flex items-center gap-2 px-3 py-2 border-b border-gray-800 last:border-0 hover:bg-gray-800 transition-colors">
-                  <button
-                    onclick={() => goToPolygon(polygon)}
-                    class="flex-1 text-left text-xs text-gray-300 hover:text-orange-500 transition-colors"
-                    title="Go to polygon"
-                  >
-                    {getPolygonLabel(polygon, index)}
-                  </button>
-                  <button
-                    onclick={() => deletePolygon(polygon.id)}
-                    class="w-5 h-5 flex items-center justify-center text-gray-500 hover:text-red-500 hover:bg-gray-700 transition-colors"
-                    title="Delete polygon"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                      <path d="M2 2 L10 10 M10 2 L2 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                    </svg>
-                  </button>
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/if}
-      {/if}
-      <!-- Polygon button -->
-      <button
-        onclick={startPolygonDrawing}
-        class={`w-8 h-8 flex items-center justify-center transition-colors duration-200 ${
-          isDrawingPolygon
-            ? 'bg-gray-700 border-l-2 border-orange-500'
-            : 'bg-gray-900 hover:bg-gray-800'
-        }`}
-        title="Draw Polygon"
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class={isDrawingPolygon ? 'text-orange-500' : 'text-white'}>
-          <path d="M2 6 L8 2 L14 6 L14 12 L8 14 L2 12 Z" stroke="currentColor" stroke-width="1.5" fill="none"/>
-        </svg>
-      </button>
-
-      <!-- Circle button -->
-      <button
-        onclick={startCircleDrawing}
-        class={`w-8 h-8 flex items-center justify-center transition-colors duration-200 border-t border-gray-700 ${
-          isDrawingCircle
-            ? 'bg-gray-700 border-l-2 border-orange-500'
-            : 'bg-gray-900 hover:bg-gray-800'
-        }`}
-        title={circleCenter ? "Click to set radius" : "Draw Circle: Click center, then radius"}
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class={isDrawingCircle ? 'text-orange-500' : 'text-white'}>
-          <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5" fill="none"/>
-        </svg>
-      </button>
-    </div>
-
-    <!-- Action buttons -->
-    <div class="bg-gray-900 border-2 border-gray-700 flex flex-col">
-      <button
-        onclick={enrichPolygons}
-        disabled={isEnriching}
-        class={`w-8 h-8 flex items-center justify-center transition-colors duration-200 ${
-          isEnriching
-            ? 'bg-gray-900 cursor-not-allowed'
-            : 'bg-gray-900 hover:bg-gray-800 hover:border-l-2 hover:border-orange-500'
-        }`}
-        title={isEnriching ? 'Enriching...' : 'Enrich Polygons'}
-      >
-        {#if isEnriching}
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="text-orange-500 animate-spin">
-            <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="2" stroke-dasharray="8 4" fill="none"/>
-          </svg>
-        {:else}
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="text-white">
-            <circle cx="8" cy="8" r="2" fill="currentColor"/>
-            <circle cx="8" cy="3" r="1.5" fill="currentColor"/>
-            <circle cx="13" cy="8" r="1.5" fill="currentColor"/>
-            <circle cx="8" cy="13" r="1.5" fill="currentColor"/>
-            <circle cx="3" cy="8" r="1.5" fill="currentColor"/>
-          </svg>
-        {/if}
-      </button>
-
-      <button
-        onclick={clearAll}
-        class="w-8 h-8 flex items-center justify-center bg-gray-900 hover:bg-gray-800 transition-colors duration-200 border-t border-gray-700"
-        title="Clear All"
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="text-white">
-          <path d="M3 4 L13 4 M5 4 L5 2 L11 2 L11 4 M6 7 L6 12 M10 7 L10 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          <path d="M4 4 L4 13 C4 13.5 4.5 14 5 14 L11 14 C11.5 14 12 13.5 12 13 L12 4" stroke="currentColor" stroke-width="1.5" fill="none"/>
-        </svg>
-      </button>
-    </div>
-  </div>
+  <DrawingToolbar
+    {polygons}
+    {isDrawingPolygon}
+    {isDrawingCircle}
+    {isEnriching}
+    {circleCenter}
+    onStartPolygonDrawing={startPolygonDrawing}
+    onStartCircleDrawing={startCircleDrawing}
+    onEnrich={enrichPolygons}
+    onClearAll={clearAll}
+    onGoToPolygon={goToPolygon}
+    onDeletePolygon={deletePolygon}
+  />
 
   <!-- Legend -->
   <div class="absolute bottom-6 left-6 bg-gray-900 border-2 border-gray-700 p-3 shadow-lg" style="z-index: 1000;">
