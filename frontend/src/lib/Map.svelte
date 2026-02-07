@@ -686,8 +686,9 @@
           // Radius of influence (in pixels)
           'heatmap-radius': [
             'interpolate', ['linear'], ['zoom'],
-            0, 2,
-            15, 30
+            0, 20,
+            9, 40,
+            15, 80
           ],
 
           // Opacity

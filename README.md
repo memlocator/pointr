@@ -10,11 +10,21 @@ A geospatial data platform for discovering, analyzing, and investigating busines
 - **Location Search**: Search for locations worldwide using OpenStreetMap Nominatim
 - **Color-Coded Markers**: Visual categorization by business type (Food, Retail, Healthcare, Government, etc.)
 - **Contact Badges**: Visual indicators showing which businesses have phone, email, or website data
+- **Heatmap Visualization**: Toggle density heatmaps for individual categories to identify business clusters
 - **Find in List**: Click any business marker to search for it in the list view
+
+### Data Visualization
+- **Point Markers**: Standard view showing individual businesses as colored markers
+- **Category Heatmaps**: Density visualization for analyzing business distribution
+  - Toggle between point markers and heatmap view
+  - Select one category at a time for focused analysis
+  - Category-specific color gradients for visual consistency
+  - Zoom-responsive intensity and radius
+  - Useful for identifying market saturation and underserved areas
 
 ### List View
 - **Full-Text Search**: Search across all business data fields
-- **Category Filtering**: Filter by 9 business categories
+- **Category Filtering**: Filter by 10 business categories
 - **Contact Filtering**: Filter by availability of phone, email, or website
 - **Sorting**: Sort by any column (ascending/descending/none)
 - **Pagination**: Navigate through large datasets
@@ -351,17 +361,21 @@ FastAPI provides automatic API documentation at:
 
 ## Business Categories
 
-The application categorizes businesses into 9 types:
+The application categorizes businesses into 11 types with mathematically distinct colors:
 
-1. **Food & Dining** - Restaurants, cafes, bars, fast food
-2. **Retail & Shopping** - Stores, shops, malls, markets
-3. **Healthcare** - Hospitals, clinics, pharmacies, doctors
-4. **Education** - Schools, universities, libraries, kindergartens
-5. **Professional Services** - Lawyers, accountants, consultants, real estate
-6. **Entertainment** - Cinemas, theaters, museums, parks
-7. **Government & Public** - Government offices, embassies, post offices, police, fire stations
-8. **Transportation** - Airports, train stations, bus stops, parking
-9. **Other** - Everything else
+1. **Food & Dining** - Restaurants, cafes, bars, fast food, bakeries
+2. **Retail** - Supermarkets, stores, shops, malls, markets, electronics
+3. **Healthcare** - Hospitals, clinics, pharmacies, doctors, dentists, veterinary
+4. **Services** - Banks, hairdressers, beauty services
+5. **Government** - Government offices, embassies, post offices, police, fire stations, libraries
+6. **Offices** - Office buildings, business centers
+7. **Transportation** - Train stations, bus stations, ferry terminals
+8. **Infrastructure** - Airports, telecom towers, utilities, ports, industrial facilities
+9. **Automotive** - Gas stations, car rentals, car washes
+10. **Historic & Tourism** - Castles, monuments, museums, schools, universities
+11. **Other** - Everything else
+
+Colors are generated using the golden angle method (137.508°) for maximum visual distinction.
 
 ## Free Reconnaissance Tools
 
