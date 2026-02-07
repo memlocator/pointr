@@ -4,6 +4,7 @@ package recon;
 
 // Service definition for network reconnaissance
 service ReconService {
+  rpc Health (HealthRequest) returns (HealthResponse);
   rpc RunRecon (ReconRequest) returns (ReconResponse);
   rpc RunReconStream (ReconRequest) returns (stream ReconUpdate);
 }
@@ -56,6 +57,27 @@ message ASNInfo {
   string organization = 2;
   repeated string ip_ranges = 3;
   string country = 4;
+
+  // BGP routing data
+  repeated string prefixes_v4 = 5;
+  repeated string prefixes_v6 = 6;
+  int32 prefix_count_v4 = 7;
+  int32 prefix_count_v6 = 8;
+
+  // Network relationships
+  repeated string peers = 9;  // ASNs this network peers with
+  repeated string upstreams = 10;  // Transit providers
+  repeated string downstreams = 11;  // Customers
+
+  // Peering info
+  string peering_policy = 12;  // Open, Selective, Restrictive
+  string network_type = 13;  // NSP, Content, Cable, Enterprise, etc.
+  repeated string peering_facilities = 14;  // IX locations
+
+  // Metadata
+  string rir = 15;  // Regional Internet Registry (ARIN, RIPE, etc.)
+  repeated string abuse_contacts = 16;
+  string bgp_prefix = 17;  // The actual prefix the IP belongs to
 }
 
 // Domain recon result
@@ -85,4 +107,12 @@ message ReconUpdate {
   UpdateType type = 1;
   string message = 2;  // Log message
   DomainRecon result = 3;  // Final result for a domain
+}
+
+// Health check messages
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1;  // "healthy" or "unhealthy"
+  string message = 2;
 }

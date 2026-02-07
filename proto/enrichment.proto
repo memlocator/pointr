@@ -4,6 +4,7 @@ package enrichment;
 
 // Service definition for map polygon enrichment
 service EnrichmentService {
+  rpc Health (HealthRequest) returns (HealthResponse);
   rpc EnrichPolygon (PolygonRequest) returns (EnrichmentResponse);
 }
 
@@ -37,4 +38,13 @@ message EnrichmentResponse {
   string region_type = 3;
   repeated string nearby_features = 4;
   repeated Business businesses = 5;
+  string error = 6;  // Error message if enrichment failed
+}
+
+// Health check messages
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1;  // "healthy" or "unhealthy"
+  string message = 2;
 }
