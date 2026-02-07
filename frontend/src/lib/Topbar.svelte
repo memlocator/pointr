@@ -1,6 +1,11 @@
 <script>
   let { currentView = $bindable(), businessCount = 0 } = $props()
   let apiStatus = $state('checking...')
+  let healthData = $state({
+    status: 'checking...',
+    services: {}
+  })
+  let showHealthDetails = $state(false)
 
   const API_URL = 'http://localhost:8000'
 
@@ -9,12 +14,41 @@
       const response = await fetch(`${API_URL}/api/health`)
       const data = await response.json()
       apiStatus = data.status
+      healthData = data
     } catch (error) {
       apiStatus = 'offline'
+      healthData = {
+        status: 'offline',
+        services: {
+          backend: { status: 'offline', message: 'Cannot connect to backend' },
+          enrichment: { status: 'unknown', message: 'Backend offline' },
+          recon: { status: 'unknown', message: 'Backend offline' }
+        }
+      }
     }
   }
 
+  function getStatusColor(status) {
+    if (!status) return 'bg-gray-500'
+    if (status === 'healthy') return 'bg-green-500'
+    if (status === 'degraded') return 'bg-yellow-500'
+    if (status === 'unhealthy') return 'bg-red-500'
+    if (status === 'offline') return 'bg-red-500'
+    return 'bg-gray-500'
+  }
+
+  // Run initial health check
   checkAPI()
+
+  // Set up periodic health check every 5 seconds
+  $effect(() => {
+    const interval = setInterval(() => {
+      checkAPI()
+    }, 5000)
+
+    // Cleanup on component destroy
+    return () => clearInterval(interval)
+  })
 </script>
 
 <div class="w-full bg-gray-900 border-b border-gray-700 px-6 py-3 flex items-center justify-between">
@@ -82,9 +116,53 @@
   </div>
 
   <div class="flex items-center gap-4">
-    <div class="flex items-center gap-2 px-3 py-1 bg-gray-800 border border-gray-700">
-      <div class={`w-2 h-2 ${apiStatus === 'healthy' ? 'bg-green-500' : 'bg-red-500'}`}></div>
-      <span class="text-xs font-mono text-gray-400">API: {apiStatus.toUpperCase()}</span>
+    <div class="relative">
+      <button
+        onclick={() => showHealthDetails = !showHealthDetails}
+        class="flex items-center gap-2 px-3 py-1 bg-gray-800 border border-gray-700 hover:bg-gray-700 transition-colors"
+      >
+        <div class={`w-2 h-2 rounded-full ${getStatusColor(apiStatus)}`}></div>
+        <span class="text-xs font-mono text-gray-400">API: {(apiStatus || 'unknown').toUpperCase()}</span>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 12 12"
+          fill="none"
+          class={`text-gray-400 transition-transform ${showHealthDetails ? 'rotate-180' : ''}`}
+        >
+          <path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+
+      {#if showHealthDetails && Object.keys(healthData.services).length > 0}
+        <div class="absolute top-full right-0 mt-1 bg-gray-900 border-2 border-gray-700 shadow-lg min-w-[280px] z-[1100]">
+          <div class="px-4 py-2 border-b border-gray-700">
+            <div class="text-xs font-bold text-gray-400 tracking-wide">SERVICE STATUS</div>
+          </div>
+          <div class="p-2">
+            {#each Object.entries(healthData.services) as [serviceName, serviceData]}
+              {#if serviceData}
+                <div class="flex items-center justify-between px-2 py-2 hover:bg-gray-800 transition-colors">
+                  <div class="flex items-center gap-2">
+                    <div class={`w-2 h-2 rounded-full ${getStatusColor(serviceData?.status || 'unknown')}`}></div>
+                    <span class="text-xs font-medium text-gray-300 uppercase">{serviceName}</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs text-gray-500">{serviceData?.message || 'Unknown'}</span>
+                    <span class={`text-xs font-mono ${
+                      serviceData?.status === 'healthy' ? 'text-green-500' :
+                      serviceData?.status === 'degraded' ? 'text-yellow-500' :
+                      'text-red-500'
+                    }`}>
+                      {(serviceData?.status || 'unknown').toUpperCase()}
+                    </span>
+                  </div>
+                </div>
+              {/if}
+            {/each}
+          </div>
+        </div>
+      {/if}
     </div>
 
     <button
