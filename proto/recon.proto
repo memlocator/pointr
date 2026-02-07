@@ -80,6 +80,24 @@ message ASNInfo {
   string bgp_prefix = 17;  // The actual prefix the IP belongs to
 }
 
+// DMARC policy
+message DMARCRecord {
+  string raw_record = 1;  // Full DMARC record
+  string policy = 2;  // none, quarantine, or reject
+  string subdomain_policy = 3;  // Policy for subdomains
+  int32 percentage = 4;  // Percentage of messages to apply policy to
+  repeated string rua = 5;  // Aggregate report URIs
+  repeated string ruf = 6;  // Forensic report URIs
+  bool present = 7;  // Whether DMARC record exists
+}
+
+// Blocklist check result
+message BlocklistStatus {
+  string blocklist = 1;  // Name of the blocklist
+  bool listed = 2;  // Whether domain/IP is listed
+  string details = 3;  // Additional info if listed
+}
+
 // Domain recon result
 message DomainRecon {
   string domain = 1;
@@ -90,6 +108,8 @@ message DomainRecon {
   ASNInfo asn_info = 6;
   repeated string subdomains = 7;
   string error = 8;
+  DMARCRecord dmarc = 9;
+  repeated BlocklistStatus blocklists = 10;
 }
 
 // Recon response
