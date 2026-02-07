@@ -43,7 +43,8 @@ export const BUSINESS_CATEGORIES = [
       'parliament', 'legislative', 'legislature', 'ministry', 'public_service',
       'administrative', 'regional', 'local', 'national', 'embassy', 'prison',
       'ranger_station', 'public_bath', 'library', 'archive', 'tax',
-      'social_security', 'register_office', 'customs', 'bailiff', 'prosecutor'
+      'social_security', 'register_office', 'customs', 'bailiff', 'prosecutor',
+      'presidency'
     ]
   },
   {
@@ -65,6 +66,15 @@ export const BUSINESS_CATEGORIES = [
     color: '#ef4444', // Red
     types: [
       'fuel', 'car_rental', 'car_wash'
+    ]
+  },
+  {
+    name: 'Historic & Tourism',
+    color: '#fbbf24', // Amber
+    types: [
+      'castle', 'castle:palace', 'palace', 'fort', 'monument', 'memorial',
+      'manor', 'citywalls', 'attraction', 'museum',
+      'school', 'university', 'college', 'kindergarten'
     ]
   },
   {
