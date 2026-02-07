@@ -8,6 +8,7 @@ services:
     volumes:
       # Mount source code for hot reloading
       - ./enrichment/main.py:/app/main.py
+      - ./enrichment/config.py:/app/config.py
       - ./enrichment/pyproject.toml:/app/pyproject.toml
     environment:
       - PYTHONUNBUFFERED=1
@@ -22,6 +23,7 @@ services:
     volumes:
       # Mount source code for hot reloading
       - ./recon/main.py:/app/main.py
+      - ./recon/config.py:/app/config.py
       - ./recon/requirements.txt:/app/requirements.txt
     environment:
       - PYTHONUNBUFFERED=1
@@ -36,6 +38,7 @@ services:
     volumes:
       # Mount source code for hot reloading
       - ./backend/main.py:/app/main.py
+      - ./backend/config.py:/app/config.py
       - ./backend/pyproject.toml:/app/pyproject.toml
     environment:
       - PYTHONUNBUFFERED=1

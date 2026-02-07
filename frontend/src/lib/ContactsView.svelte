@@ -3,9 +3,9 @@
 
   let { businesses = [], selectedBusinesses = $bindable([]), currentView = $bindable('contacts') } = $props()
 
-  // Filter to only businesses with phone or email
+  // Filter to only businesses with phone, email, or website
   let contactBusinesses = $derived(
-    businesses.filter(b => b.phone || b.email)
+    businesses.filter(b => b.phone || b.email || b.website)
   )
 
   const columns = [
@@ -28,6 +28,16 @@
         value: value,
         href: `mailto:${value}`,
         class: 'text-orange-400 hover:text-orange-300 hover:underline'
+      } : { type: 'text', value: '-', class: 'text-gray-600' }
+    },
+    {
+      id: 'website',
+      header: 'Website',
+      render: (value) => value ? {
+        type: 'link',
+        value: value,
+        href: value.startsWith('http') ? value : `https://${value}`,
+        class: 'text-blue-400 hover:text-blue-300 hover:underline'
       } : { type: 'text', value: '-', class: 'text-gray-600' }
     }
   ]

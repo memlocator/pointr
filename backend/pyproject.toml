@@ -10,6 +10,7 @@ dependencies = [
     "uvicorn>=0.40.0",
     "grpcio>=1.70.0",
     "grpcio-tools>=1.70.0",
+    "pydantic-settings>=2.0.0",
 ]
 
 [project.scripts]

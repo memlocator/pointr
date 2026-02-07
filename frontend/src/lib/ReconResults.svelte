@@ -1,5 +1,11 @@
 <script>
-  let { result } = $props()
+  let { result, mode = null, onRemove = null } = $props()
+
+  // Color scheme based on recon mode
+  const modeColors = $derived({
+    border: mode === 'silent' ? 'border-purple-500' : mode === 'full' ? 'border-orange-500' : 'border-gray-700',
+    text: mode === 'silent' ? 'text-purple-400' : mode === 'full' ? 'text-orange-400' : 'text-gray-400'
+  })
 
   // Helper to check if security header exists
   function hasSecurityHeader(value) {
@@ -7,32 +13,41 @@
   }
 
   // Count security headers
-  const securityScore = $derived(() => {
-    let score = 0
-    const headers = result.security_headers
-    if (hasSecurityHeader(headers.strict_transport_security)) score++
-    if (hasSecurityHeader(headers.content_security_policy)) score++
-    if (hasSecurityHeader(headers.x_frame_options)) score++
-    if (hasSecurityHeader(headers.x_content_type_options)) score++
-    if (hasSecurityHeader(headers.referrer_policy)) score++
-    if (hasSecurityHeader(headers.permissions_policy)) score++
-    return score
-  })
+  const securityScore = $derived(
+    (hasSecurityHeader(result.security_headers.strict_transport_security) ? 1 : 0) +
+    (hasSecurityHeader(result.security_headers.content_security_policy) ? 1 : 0) +
+    (hasSecurityHeader(result.security_headers.x_frame_options) ? 1 : 0) +
+    (hasSecurityHeader(result.security_headers.x_content_type_options) ? 1 : 0) +
+    (hasSecurityHeader(result.security_headers.referrer_policy) ? 1 : 0) +
+    (hasSecurityHeader(result.security_headers.permissions_policy) ? 1 : 0)
+  )
 
-  const scoreColor = $derived(() => {
-    const score = securityScore
-    if (score >= 5) return 'text-green-400'
-    if (score >= 3) return 'text-yellow-400'
-    return 'text-red-400'
-  })
+  const scoreColor = $derived(
+    securityScore >= 5 ? 'text-green-400' :
+    securityScore >= 3 ? 'text-yellow-400' :
+    'text-red-400'
+  )
 </script>
 
-<div class="bg-gray-800 border-2 border-gray-700 p-6">
+<div class="bg-gray-800 border-2 p-6 {modeColors.border} relative">
   <!-- Domain Header -->
-  <div class="mb-6 pb-4 border-b border-gray-700">
-    <h3 class="text-xl font-bold text-orange-400 tracking-wide">{result.domain}</h3>
-    {#if result.error}
-      <p class="text-sm text-red-400 mt-2">ERROR: {result.error}</p>
+  <div class="mb-6 pb-4 border-b border-gray-700 flex items-start justify-between">
+    <div class="flex-1">
+      <h3 class="text-xl font-bold tracking-wide {modeColors.text}">{result.domain}</h3>
+      {#if result.error}
+        <p class="text-sm text-red-400 mt-2">ERROR: {result.error}</p>
+      {/if}
+    </div>
+    {#if onRemove}
+      <button
+        onclick={() => onRemove(result.domain)}
+        class="ml-4 p-1 text-gray-500 hover:text-gray-200 hover:bg-gray-700 transition-colors rounded"
+        title="Remove this result"
+      >
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 4 L16 16 M16 4 L4 16" stroke-linecap="round"/>
+        </svg>
+      </button>
     {/if}
   </div>
 
@@ -53,7 +68,8 @@
       </div>
     {/if}
 
-    <!-- Security Headers -->
+    <!-- Security Headers (only show if data exists) -->
+    {#if result.security_headers && (result.security_headers.strict_transport_security || result.security_headers.content_security_policy || result.security_headers.x_frame_options || result.security_headers.x_content_type_options || result.security_headers.referrer_policy || result.security_headers.permissions_policy)}
     <div class="bg-gray-900 border border-gray-700 p-4">
       <div class="flex items-center justify-between mb-3">
         <h4 class="text-sm font-bold text-gray-400 tracking-wide">SECURITY HEADERS</h4>
@@ -78,7 +94,7 @@
           </div>
           <p class="text-xs text-gray-500 ml-6">Forces HTTPS connections</p>
           {#if hasSecurityHeader(result.security_headers.strict_transport_security)}
-            <code class="text-xs text-gray-600 font-mono ml-6 block mt-1 truncate">{result.security_headers.strict_transport_security}</code>
+            <code class="text-xs text-gray-400 font-mono ml-6 block mt-1 truncate">{result.security_headers.strict_transport_security}</code>
           {/if}
         </div>
 
@@ -92,7 +108,7 @@
           </div>
           <p class="text-xs text-gray-500 ml-6">Prevents XSS attacks</p>
           {#if hasSecurityHeader(result.security_headers.content_security_policy)}
-            <code class="text-xs text-gray-600 font-mono ml-6 block mt-1 truncate">{result.security_headers.content_security_policy.substring(0, 60)}...</code>
+            <code class="text-xs text-gray-400 font-mono ml-6 block mt-1 truncate">{result.security_headers.content_security_policy.substring(0, 60)}...</code>
           {/if}
         </div>
 
@@ -106,7 +122,7 @@
           </div>
           <p class="text-xs text-gray-500 ml-6">Prevents clickjacking</p>
           {#if hasSecurityHeader(result.security_headers.x_frame_options)}
-            <code class="text-xs text-orange-400 font-mono ml-6 block mt-1">{result.security_headers.x_frame_options}</code>
+            <code class="text-xs text-gray-400 font-mono ml-6 block mt-1">{result.security_headers.x_frame_options}</code>
           {/if}
         </div>
 
@@ -120,7 +136,7 @@
           </div>
           <p class="text-xs text-gray-500 ml-6">Prevents MIME-sniffing</p>
           {#if hasSecurityHeader(result.security_headers.x_content_type_options)}
-            <code class="text-xs text-orange-400 font-mono ml-6 block mt-1">{result.security_headers.x_content_type_options}</code>
+            <code class="text-xs text-gray-400 font-mono ml-6 block mt-1">{result.security_headers.x_content_type_options}</code>
           {/if}
         </div>
 
@@ -134,7 +150,7 @@
           </div>
           <p class="text-xs text-gray-500 ml-6">Controls referrer information</p>
           {#if hasSecurityHeader(result.security_headers.referrer_policy)}
-            <code class="text-xs text-orange-400 font-mono ml-6 block mt-1">{result.security_headers.referrer_policy}</code>
+            <code class="text-xs text-gray-400 font-mono ml-6 block mt-1">{result.security_headers.referrer_policy}</code>
           {/if}
         </div>
 
@@ -148,11 +164,12 @@
           </div>
           <p class="text-xs text-gray-500 ml-6">Controls browser features</p>
           {#if hasSecurityHeader(result.security_headers.permissions_policy)}
-            <code class="text-xs text-gray-600 font-mono ml-6 block mt-1 truncate">{result.security_headers.permissions_policy.substring(0, 60)}...</code>
+            <code class="text-xs text-gray-400 font-mono ml-6 block mt-1 truncate">{result.security_headers.permissions_policy.substring(0, 60)}...</code>
           {/if}
         </div>
       </div>
     </div>
+    {/if}
 
     <!-- SSL Certificates -->
     {#if result.ssl_certificates && result.ssl_certificates.length > 0}

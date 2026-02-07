@@ -21,18 +21,26 @@ A geospatial data platform for discovering, analyzing, and investigating busines
 - **Selection**: Multi-select businesses for reconnaissance
 
 ### Contacts View
-- **Pre-Filtered Data**: Shows only businesses with contact information
+- **Pre-Filtered Data**: Shows only businesses with contact information (phone, email, or website)
 - **Quick Access**: Streamlined view of phone numbers, emails, and websites
+- **Clickable Links**: Direct phone (tel:), email (mailto:), and website links
 - **Selection Sync**: Selection state synchronized with List View
 
 ### Recon View
-- **Network Reconnaissance**: Run network analysis on selected business websites
-- **DNS Records**: Query A, AAAA, MX, TXT, NS records
-- **SSL Certificates**: Certificate details from Certificate Transparency logs
-- **Subdomain Discovery**: Automated subdomain enumeration via crt.sh
-- **Security Headers**: HTTP security header analysis
-- **WHOIS Data**: Domain registration information
-- **ASN Information**: Autonomous system and IP range data
+- **Dual Mode Reconnaissance**: Choose between Silent (passive) or Full (active) recon
+  - **Silent Mode**: DNS, SSL certificates, WHOIS, ASN - no HTTP requests to target
+  - **Full Mode**: All silent features plus security headers (requires HTTP request)
+- **Target Management**: View, remove individual targets, or clear all at once
+- **Real-Time Streaming**: Live log updates in resizable sidebar
+- **Color-Coded UI**: Purple for silent mode, orange for full mode
+- **DNS Records**: Query A, AAAA, MX, TXT, NS records via dnspython
+- **SSL Certificates**: Certificate details from Certificate Transparency logs (crt.sh)
+- **Subdomain Discovery**: Automated subdomain enumeration from SSL certificates
+- **Security Headers**: HTTP security header analysis (HSTS, CSP, X-Frame-Options, etc.)
+- **WHOIS Data**: Domain registration and ownership information
+- **ASN Information**: Autonomous system number, network range, and ISP data
+- **Parallel Execution**: Process multiple domains concurrently (up to 5 workers)
+- **Result Management**: Remove individual results or clear all at once
 - **All Free Tools**: No API keys required
 
 ## Architecture
@@ -122,16 +130,19 @@ leadmaker/
 │   └── recon.proto       # Network recon service
 ├── backend/              # FastAPI REST API
 │   ├── main.py
+│   ├── config.py         # Pydantic settings
 │   ├── enrichment_pb2*.py
 │   ├── recon_pb2*.py
 │   ├── pyproject.toml
 │   └── Dockerfile
 ├── enrichment/           # gRPC enrichment service
 │   ├── main.py
+│   ├── config.py         # Pydantic settings
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── recon/                # gRPC recon service
 │   ├── main.py
+│   ├── config.py         # Pydantic settings
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/             # Svelte 5 + MapLibre UI
@@ -141,6 +152,7 @@ leadmaker/
 │   │   │   ├── ListView.svelte
 │   │   │   ├── ContactsView.svelte
 │   │   │   ├── ReconView.svelte
+│   │   │   ├── ReconResults.svelte
 │   │   │   └── components/
 │   │   │       └── DataTable/
 │   │   ├── App.svelte
@@ -271,9 +283,12 @@ FastAPI provides automatic API documentation at:
   - Output: Area, population, businesses with contact info
 
 **Network Reconnaissance**
-- `POST /api/recon` - Run network recon on domains
-  - Input: `{ domains: ["example.com", "example.org"] }`
-  - Output: DNS, SSL, subdomains, security headers, WHOIS, ASN data
+- `POST /api/recon` - Run network recon on domains (deprecated, use /api/recon/stream)
+- `POST /api/recon/stream` - Run streaming network recon on domains
+  - Input: `{ domains: ["example.com", "example.org"], silent_mode: true/false }`
+  - Output: Server-Sent Events stream with real-time logs and results
+  - Silent mode (true): DNS, SSL, WHOIS, ASN only (passive reconnaissance)
+  - Full mode (false): All silent features plus security headers (active reconnaissance)
 
 **Location Search**
 - `GET /api/search?q={query}` - Search for locations
@@ -288,13 +303,16 @@ FastAPI provides automatic API documentation at:
   - Returns businesses with contact information
 
 **Recon Service (port 50052)**
-- `RunRecon(ReconRequest) -> ReconResponse`
-  - DNS lookups via dnspython
-  - SSL certificates from crt.sh
-  - Subdomain enumeration from Certificate Transparency
-  - Security header checks via HTTP requests
-  - WHOIS lookups
-  - ASN data from Team Cymru
+- `RunReconStream(ReconRequest) -> stream ReconUpdate`
+  - Input: domains list and silent_mode flag
+  - Parallel execution with up to 5 concurrent workers
+  - Real-time streaming of logs and results
+  - DNS lookups via dnspython (passive)
+  - SSL certificates from crt.sh API (passive)
+  - Subdomain enumeration from Certificate Transparency (passive)
+  - WHOIS lookups via public servers (passive)
+  - ASN data from Team Cymru DNS service (passive)
+  - Security header checks via HTTP requests (active - skipped in silent mode)
 
 ## Tech Stack
 
@@ -302,21 +320,25 @@ FastAPI provides automatic API documentation at:
 - FastAPI - Modern Python web framework
 - Uvicorn - ASGI server
 - Pydantic - Data validation
+- Pydantic Settings - Configuration management
 - gRPC - RPC client for microservices
 - httpx - Async HTTP client
 
 ### Enrichment Service (gRPC)
 - gRPC - High-performance RPC framework
 - Protocol Buffers - Interface definition
+- Pydantic Settings - Configuration management
 - Shapely - Geometric calculations
 - requests - HTTP client for Overpass API
 
 ### Recon Service (gRPC)
 - gRPC - High-performance RPC framework
 - Protocol Buffers - Interface definition
+- Pydantic Settings - Configuration management
 - dnspython - DNS queries
 - python-whois - WHOIS lookups
 - httpx - HTTP client for crt.sh and security headers
+- ThreadPoolExecutor - Parallel domain processing
 
 ### Frontend
 - Svelte 5 - Reactive UI framework with runes (`$state`, `$derived`, `$effect`)
@@ -345,12 +367,23 @@ The application categorizes businesses into 9 types:
 
 The recon service uses only free tools with no API key requirements:
 
-- **DNS Records**: dnspython library (queries public DNS servers)
-- **SSL Certificates**: crt.sh API (Certificate Transparency logs)
+### Passive Reconnaissance (Silent Mode)
+All of these tools do NOT contact the target website directly:
+
+- **DNS Records**: dnspython library (queries public DNS servers for A, AAAA, MX, TXT, NS records)
+- **SSL Certificates**: crt.sh API (queries Certificate Transparency logs)
 - **Subdomains**: Extracted from SSL certificate Subject Alternative Names
-- **Security Headers**: Direct HTTP HEAD requests
-- **WHOIS**: python-whois library (queries public WHOIS servers)
-- **ASN Information**: Team Cymru DNS-based ASN lookup service
+- **WHOIS**: python-whois library (queries public WHOIS servers for registration data)
+- **ASN Information**: Team Cymru DNS-based ASN lookup service (passive DNS queries only)
+
+### Active Reconnaissance (Full Mode Only)
+This feature requires making an HTTP request to the target:
+
+- **Security Headers**: Direct HTTP HEAD request to analyze HSTS, CSP, X-Frame-Options, etc.
+
+### Parallel Processing
+- Concurrent execution of up to 5 domains simultaneously using ThreadPoolExecutor
+- Real-time streaming of logs and results via Server-Sent Events (SSE)
 
 ## License
 

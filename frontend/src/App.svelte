@@ -24,7 +24,7 @@
     {:else if currentView === 'contacts'}
       <ContactsView {businesses} bind:selectedBusinesses bind:currentView />
     {:else if currentView === 'recon'}
-      <ReconView {selectedBusinesses} />
+      <ReconView bind:selectedBusinesses />
     {/if}
   </div>
 </div>

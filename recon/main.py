@@ -8,6 +8,9 @@ import socket
 from urllib.parse import urlparse
 import re
 from datetime import datetime
+import threading
+import queue
+from config import settings
 
 
 class ReconServicer(recon_pb2_grpc.ReconServiceServicer):
@@ -21,6 +24,144 @@ class ReconServicer(recon_pb2_grpc.ReconServiceServicer):
             results.append(result)
 
         return recon_pb2.ReconResponse(results=results)
+
+    def RunReconStream(self, request, context):
+        """Run reconnaissance with streaming updates (parallel execution)"""
+        total_domains = len(request.domains)
+        update_queue = queue.Queue()
+        completed_count = [0]  # Use list for mutable counter
+        lock = threading.Lock()
+
+        def recon_worker(idx, domain):
+            """Worker function to recon a single domain"""
+            silent_mode = request.silent_mode
+            mode_label = "SILENT" if silent_mode else "FULL"
+
+            # Send start log
+            update_queue.put(recon_pb2.ReconUpdate(
+                type=recon_pb2.ReconUpdate.LOG,
+                message=f"[{idx}/{total_domains}] Starting {mode_label} recon on {domain}"
+            ))
+
+            # Clean domain
+            clean_domain = self._clean_domain(domain)
+            domain_recon = recon_pb2.DomainRecon(domain=clean_domain)
+
+            try:
+                # DNS Records
+                update_queue.put(recon_pb2.ReconUpdate(
+                    type=recon_pb2.ReconUpdate.LOG,
+                    message=f"[{clean_domain}] → Querying DNS records..."
+                ))
+                domain_recon.dns_records.extend(self._get_dns_records(clean_domain))
+                update_queue.put(recon_pb2.ReconUpdate(
+                    type=recon_pb2.ReconUpdate.LOG,
+                    message=f"[{clean_domain}] ✓ Found {len(domain_recon.dns_records)} DNS records"
+                ))
+
+                # SSL Certificates
+                update_queue.put(recon_pb2.ReconUpdate(
+                    type=recon_pb2.ReconUpdate.LOG,
+                    message=f"[{clean_domain}] → Fetching SSL certificates from crt.sh..."
+                ))
+                domain_recon.ssl_certificates.extend(self._get_ssl_certs(clean_domain))
+                update_queue.put(recon_pb2.ReconUpdate(
+                    type=recon_pb2.ReconUpdate.LOG,
+                    message=f"[{clean_domain}] ✓ Found {len(domain_recon.ssl_certificates)} certificates"
+                ))
+
+                # Subdomains
+                update_queue.put(recon_pb2.ReconUpdate(
+                    type=recon_pb2.ReconUpdate.LOG,
+                    message=f"[{clean_domain}] → Enumerating subdomains..."
+                ))
+                domain_recon.subdomains.extend(self._get_subdomains(clean_domain))
+                update_queue.put(recon_pb2.ReconUpdate(
+                    type=recon_pb2.ReconUpdate.LOG,
+                    message=f"[{clean_domain}] ✓ Discovered {len(domain_recon.subdomains)} subdomains"
+                ))
+
+                # Security Headers (SKIP in silent mode - requires HTTP request to target)
+                if not silent_mode:
+                    update_queue.put(recon_pb2.ReconUpdate(
+                        type=recon_pb2.ReconUpdate.LOG,
+                        message=f"[{clean_domain}] → Checking security headers..."
+                    ))
+                    headers = self._get_security_headers(clean_domain)
+                    if headers:
+                        domain_recon.security_headers.CopyFrom(headers)
+                        update_queue.put(recon_pb2.ReconUpdate(
+                            type=recon_pb2.ReconUpdate.LOG,
+                            message=f"[{clean_domain}] ✓ Analyzed security headers"
+                        ))
+                else:
+                    update_queue.put(recon_pb2.ReconUpdate(
+                        type=recon_pb2.ReconUpdate.LOG,
+                        message=f"[{clean_domain}] ⊘ Skipped security headers (silent mode)"
+                    ))
+
+                # WHOIS
+                update_queue.put(recon_pb2.ReconUpdate(
+                    type=recon_pb2.ReconUpdate.LOG,
+                    message=f"[{clean_domain}] → Performing WHOIS lookup..."
+                ))
+                whois_data = self._get_whois(clean_domain)
+                if whois_data:
+                    domain_recon.whois.CopyFrom(whois_data)
+                    update_queue.put(recon_pb2.ReconUpdate(
+                        type=recon_pb2.ReconUpdate.LOG,
+                        message=f"[{clean_domain}] ✓ Retrieved WHOIS data"
+                    ))
+
+                # ASN (passive - only DNS queries)
+                update_queue.put(recon_pb2.ReconUpdate(
+                    type=recon_pb2.ReconUpdate.LOG,
+                    message=f"[{clean_domain}] → Looking up ASN information..."
+                ))
+                asn_info = self._get_asn_info(clean_domain)
+                if asn_info:
+                    domain_recon.asn_info.CopyFrom(asn_info)
+                    update_queue.put(recon_pb2.ReconUpdate(
+                        type=recon_pb2.ReconUpdate.LOG,
+                        message=f"[{clean_domain}] ✓ Found ASN: {asn_info.asn}"
+                    ))
+
+            except Exception as e:
+                domain_recon.error = str(e)
+                update_queue.put(recon_pb2.ReconUpdate(
+                    type=recon_pb2.ReconUpdate.LOG,
+                    message=f"[{clean_domain}] ✗ Error: {str(e)}"
+                ))
+
+            # Send result
+            update_queue.put(recon_pb2.ReconUpdate(
+                type=recon_pb2.ReconUpdate.RESULT,
+                message=f"Completed {clean_domain}",
+                result=domain_recon
+            ))
+
+            # Track completion
+            with lock:
+                completed_count[0] += 1
+                if completed_count[0] == total_domains:
+                    # All domains complete
+                    update_queue.put(recon_pb2.ReconUpdate(
+                        type=recon_pb2.ReconUpdate.COMPLETE,
+                        message=f"Recon complete for {total_domains} domain(s)"
+                    ))
+                    update_queue.put(None)  # Sentinel to stop yielding
+
+        # Start worker threads for each domain
+        with futures.ThreadPoolExecutor(max_workers=min(settings.max_workers, total_domains)) as executor:
+            for idx, domain in enumerate(request.domains, 1):
+                executor.submit(recon_worker, idx, domain)
+
+            # Yield updates as they come in from the queue
+            while True:
+                update = update_queue.get()
+                if update is None:  # Sentinel value
+                    break
+                yield update
 
     def _recon_domain(self, domain):
         """Perform comprehensive recon on a single domain"""
@@ -92,7 +233,7 @@ class ReconServicer(recon_pb2_grpc.ReconServiceServicer):
         certs = []
         try:
             response = httpx.get(
-                f'https://crt.sh/',
+                settings.crt_sh_api_url,
                 params={'q': domain, 'output': 'json'},
                 timeout=10.0,
                 follow_redirects=True
@@ -127,7 +268,7 @@ class ReconServicer(recon_pb2_grpc.ReconServiceServicer):
         subdomains = set()
         try:
             response = httpx.get(
-                f'https://crt.sh/',
+                settings.crt_sh_api_url,
                 params={'q': f'%.{domain}', 'output': 'json'},
                 timeout=10.0,
                 follow_redirects=True
@@ -214,9 +355,9 @@ class ReconServicer(recon_pb2_grpc.ReconServiceServicer):
             # Reverse IP for Team Cymru query
             reversed_ip = '.'.join(reversed(ip.split('.')))
 
-            # Query Team Cymru for ASN (origin.asn.cymru.com)
+            # Query Team Cymru for ASN
             try:
-                answers = dns.resolver.resolve(f'{reversed_ip}.origin.asn.cymru.com', 'TXT')
+                answers = dns.resolver.resolve(f'{reversed_ip}.{settings.cymru_asn_domain}', 'TXT')
                 for rdata in answers:
                     txt = str(rdata).strip('"')
                     parts = txt.split(' | ')
@@ -244,7 +385,7 @@ class ReconServicer(recon_pb2_grpc.ReconServiceServicer):
     def _get_asn_details(self, asn):
         """Get ASN organization name using Team Cymru"""
         try:
-            answers = dns.resolver.resolve(f'AS{asn}.asn.cymru.com', 'TXT')
+            answers = dns.resolver.resolve(f'AS{asn}.{settings.cymru_asn_details_domain}', 'TXT')
             for rdata in answers:
                 txt = str(rdata).strip('"')
                 parts = txt.split(' | ')
@@ -265,9 +406,9 @@ def serve():
     recon_pb2_grpc.add_ReconServiceServicer_to_server(
         ReconServicer(), server
     )
-    server.add_insecure_port('[::]:50052')
+    server.add_insecure_port(f'[::]:{ settings.recon_port}')
     server.start()
-    print("Recon service listening on port 50052")
+    print(f"Recon service listening on port {settings.recon_port}")
     server.wait_for_termination()
 
 

@@ -5,6 +5,7 @@ import enrichment_pb2_grpc
 from shapely.geometry import Polygon
 import math
 import httpx
+from config import settings
 
 
 class EnrichmentServicer(enrichment_pb2_grpc.EnrichmentServiceServicer):
@@ -123,7 +124,7 @@ class EnrichmentServicer(enrichment_pb2_grpc.EnrichmentServiceServicer):
 
         try:
             response = httpx.post(
-                "https://overpass-api.de/api/interpreter",
+                settings.overpass_api_url,
                 data={"data": query},
                 timeout=30.0
             )
@@ -175,9 +176,9 @@ def serve():
     enrichment_pb2_grpc.add_EnrichmentServiceServicer_to_server(
         EnrichmentServicer(), server
     )
-    server.add_insecure_port('[::]:50051')
+    server.add_insecure_port(f'[::]:{ settings.enrichment_port}')
     server.start()
-    print("Enrichment service listening on port 50051")
+    print(f"Enrichment service listening on port {settings.enrichment_port}")
     server.wait_for_termination()
 
 

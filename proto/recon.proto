@@ -5,11 +5,13 @@ package recon;
 // Service definition for network reconnaissance
 service ReconService {
   rpc RunRecon (ReconRequest) returns (ReconResponse);
+  rpc RunReconStream (ReconRequest) returns (stream ReconUpdate);
 }
 
 // Recon request message
 message ReconRequest {
   repeated string domains = 1;
+  bool silent_mode = 2;  // If true, skip direct HTTP requests to target
 }
 
 // DNS record
@@ -71,4 +73,16 @@ message DomainRecon {
 // Recon response
 message ReconResponse {
   repeated DomainRecon results = 1;
+}
+
+// Recon update for streaming (can be a log or result)
+message ReconUpdate {
+  enum UpdateType {
+    LOG = 0;
+    RESULT = 1;
+    COMPLETE = 2;
+  }
+  UpdateType type = 1;
+  string message = 2;  // Log message
+  DomainRecon result = 3;  // Final result for a domain
 }

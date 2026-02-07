@@ -9,6 +9,7 @@ dependencies = [
     "grpcio-tools>=1.70.0",
     "shapely>=2.0.6",
     "httpx>=0.28.1",
+    "pydantic-settings>=2.0.0",
 ]
 
 [project.scripts]
