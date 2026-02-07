@@ -47,6 +47,7 @@ class EnrichmentResponse(BaseModel):
     region_type: str
     nearby_features: list[str]
     businesses: list[Business]
+    error: str = ''
 
 # Recon models
 class ReconRequest(BaseModel):
@@ -86,6 +87,19 @@ class ASNInfo(BaseModel):
     organization: str = ''
     ip_ranges: list[str] = []
     country: str = ''
+    prefixes_v4: list[str] = []
+    prefixes_v6: list[str] = []
+    prefix_count_v4: int = 0
+    prefix_count_v6: int = 0
+    peers: list[str] = []
+    upstreams: list[str] = []
+    downstreams: list[str] = []
+    peering_policy: str = ''
+    network_type: str = ''
+    peering_facilities: list[str] = []
+    rir: str = ''
+    abuse_contacts: list[str] = []
+    bgp_prefix: str = ''
 
 class DomainRecon(BaseModel):
     domain: str
@@ -118,7 +132,69 @@ async def root():
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy"}
+    """Health check endpoint that tests all services"""
+    health_status = {
+        "status": "healthy",
+        "services": {
+            "backend": {"status": "healthy", "message": "Backend API operational"},
+            "enrichment": {"status": "unknown", "message": "Not checked"},
+            "recon": {"status": "unknown", "message": "Not checked"}
+        }
+    }
+
+    # Check enrichment service
+    try:
+        with grpc.insecure_channel(f'{settings.enrichment_host}:{settings.enrichment_port}') as channel:
+            stub = enrichment_pb2_grpc.EnrichmentServiceStub(channel)
+            # Call health check endpoint (doesn't hit external APIs)
+            response = stub.Health(
+                enrichment_pb2.HealthRequest(),
+                timeout=2.0
+            )
+            health_status["services"]["enrichment"] = {
+                "status": response.status,
+                "message": response.message
+            }
+    except grpc.RpcError as e:
+        health_status["services"]["enrichment"] = {
+            "status": "unhealthy",
+            "message": f"gRPC error: {e.code().name}"
+        }
+        health_status["status"] = "degraded"
+    except Exception as e:
+        health_status["services"]["enrichment"] = {
+            "status": "unhealthy",
+            "message": f"Connection failed: {str(e)}"
+        }
+        health_status["status"] = "degraded"
+
+    # Check recon service
+    try:
+        with grpc.insecure_channel(f'{settings.recon_host}:{settings.recon_port}') as channel:
+            stub = recon_pb2_grpc.ReconServiceStub(channel)
+            # Call health check endpoint (doesn't hit external services)
+            response = stub.Health(
+                recon_pb2.HealthRequest(),
+                timeout=2.0
+            )
+            health_status["services"]["recon"] = {
+                "status": response.status,
+                "message": response.message
+            }
+    except grpc.RpcError as e:
+        health_status["services"]["recon"] = {
+            "status": "unhealthy",
+            "message": f"gRPC error: {e.code().name}"
+        }
+        health_status["status"] = "degraded"
+    except Exception as e:
+        health_status["services"]["recon"] = {
+            "status": "unhealthy",
+            "message": f"Connection failed: {str(e)}"
+        }
+        health_status["status"] = "degraded"
+
+    return health_status
 
 @app.post("/api/enrich", response_model=EnrichmentResponse)
 @app.post("/api/map/enrich", response_model=EnrichmentResponse)
@@ -160,7 +236,8 @@ async def enrich_polygon(request: PolygonRequest):
                 estimated_population=response.estimated_population,
                 region_type=response.region_type,
                 nearby_features=list(response.nearby_features),
-                businesses=businesses
+                businesses=businesses,
+                error=response.error
             )
     except grpc.RpcError as e:
         raise HTTPException(status_code=503, detail=f"Enrichment service error: {e.details()}")
@@ -224,7 +301,20 @@ async def run_recon(request: ReconRequest):
                     asn=domain_recon.asn_info.asn,
                     organization=domain_recon.asn_info.organization,
                     ip_ranges=list(domain_recon.asn_info.ip_ranges),
-                    country=domain_recon.asn_info.country
+                    country=domain_recon.asn_info.country,
+                    prefixes_v4=list(domain_recon.asn_info.prefixes_v4),
+                    prefixes_v6=list(domain_recon.asn_info.prefixes_v6),
+                    prefix_count_v4=domain_recon.asn_info.prefix_count_v4,
+                    prefix_count_v6=domain_recon.asn_info.prefix_count_v6,
+                    peers=list(domain_recon.asn_info.peers),
+                    upstreams=list(domain_recon.asn_info.upstreams),
+                    downstreams=list(domain_recon.asn_info.downstreams),
+                    peering_policy=domain_recon.asn_info.peering_policy,
+                    network_type=domain_recon.asn_info.network_type,
+                    peering_facilities=list(domain_recon.asn_info.peering_facilities),
+                    rir=domain_recon.asn_info.rir,
+                    abuse_contacts=list(domain_recon.asn_info.abuse_contacts),
+                    bgp_prefix=domain_recon.asn_info.bgp_prefix
                 )
 
                 results.append(DomainRecon(
@@ -310,7 +400,20 @@ async def run_recon_stream(request: ReconRequest):
                                 "asn": domain_recon.asn_info.asn,
                                 "organization": domain_recon.asn_info.organization,
                                 "ip_ranges": list(domain_recon.asn_info.ip_ranges),
-                                "country": domain_recon.asn_info.country
+                                "country": domain_recon.asn_info.country,
+                                "prefixes_v4": list(domain_recon.asn_info.prefixes_v4),
+                                "prefixes_v6": list(domain_recon.asn_info.prefixes_v6),
+                                "prefix_count_v4": domain_recon.asn_info.prefix_count_v4,
+                                "prefix_count_v6": domain_recon.asn_info.prefix_count_v6,
+                                "peers": list(domain_recon.asn_info.peers),
+                                "upstreams": list(domain_recon.asn_info.upstreams),
+                                "downstreams": list(domain_recon.asn_info.downstreams),
+                                "peering_policy": domain_recon.asn_info.peering_policy,
+                                "network_type": domain_recon.asn_info.network_type,
+                                "peering_facilities": list(domain_recon.asn_info.peering_facilities),
+                                "rir": domain_recon.asn_info.rir,
+                                "abuse_contacts": list(domain_recon.asn_info.abuse_contacts),
+                                "bgp_prefix": domain_recon.asn_info.bgp_prefix
                             },
                             "subdomains": list(domain_recon.subdomains),
                             "error": domain_recon.error

@@ -9,6 +9,13 @@ from config import settings
 
 
 class EnrichmentServicer(enrichment_pb2_grpc.EnrichmentServiceServicer):
+    def Health(self, request, context):
+        """Health check endpoint - returns service status without doing any actual enrichment"""
+        return enrichment_pb2.HealthResponse(
+            status="healthy",
+            message="Enrichment service operational"
+        )
+
     def EnrichPolygon(self, request, context):
         """Enrich a polygon with calculated data"""
 
@@ -29,16 +36,20 @@ class EnrichmentServicer(enrichment_pb2_grpc.EnrichmentServiceServicer):
         region_type = self._classify_region(area_km2)
 
         # Query Overpass API for businesses
-        businesses = self._get_businesses_from_overpass(coords)
+        businesses, error = self._get_businesses_from_overpass(coords)
 
-        print(f"Enriched polygon: {area_km2:.2f} km², pop: {estimated_population}, {len(businesses)} businesses")
+        if error:
+            print(f"Enrichment error: {error}")
+        else:
+            print(f"Enriched polygon: {area_km2:.2f} km², pop: {estimated_population}, {len(businesses)} businesses")
 
         return enrichment_pb2.EnrichmentResponse(
             area_km2=area_km2,
             estimated_population=estimated_population,
             region_type=region_type,
             nearby_features=[],
-            businesses=businesses
+            businesses=businesses,
+            error=error or ""
         )
 
     def _calculate_area_km2(self, polygon):
@@ -61,8 +72,14 @@ class EnrichmentServicer(enrichment_pb2_grpc.EnrichmentServiceServicer):
 
     def _get_businesses_from_overpass(self, coords):
         """Query Overpass API for businesses in polygon"""
-        # Format polygon coordinates for Overpass query
-        poly_str = " ".join([f"{lat} {lng}" for lng, lat in coords])
+        # Calculate bounding box from polygon (faster than polygon queries)
+        lats = [lat for lng, lat in coords]
+        lngs = [lng for lng, lat in coords]
+        bbox = f"{min(lats)},{min(lngs)},{max(lats)},{max(lngs)}"  # south,west,north,east
+
+        # Create polygon for filtering results to only include businesses inside
+        from shapely.geometry import Point
+        polygon = Polygon(coords)
 
         # Business-related amenities only (exclude bike_parking, benches, etc.)
         business_amenities = [
@@ -92,32 +109,19 @@ class EnrichmentServicer(enrichment_pb2_grpc.EnrichmentServiceServicer):
 
         government_filter = "|".join(government_types)
 
-        # Overpass QL query - very permissive to catch all businesses, government, and public buildings
-        # Query nodes, ways, and relations to catch complex buildings
+        print(f"Querying Overpass with bbox: {bbox}")
+
+        # Overpass QL query - optimized with essential entity types
         query = f"""
-        [out:json];
+        [out:json][timeout:60][bbox:{bbox}];
         (
-          node["shop"](poly:"{poly_str}");
-          way["shop"](poly:"{poly_str}");
-          relation["shop"](poly:"{poly_str}");
-          node["amenity"~"^({amenity_filter})$"](poly:"{poly_str}");
-          way["amenity"~"^({amenity_filter})$"](poly:"{poly_str}");
-          relation["amenity"~"^({amenity_filter})$"](poly:"{poly_str}");
-          node["office"](poly:"{poly_str}");
-          way["office"](poly:"{poly_str}");
-          relation["office"](poly:"{poly_str}");
-          node["building"="government"](poly:"{poly_str}");
-          way["building"="government"](poly:"{poly_str}");
-          relation["building"="government"](poly:"{poly_str}");
-          node["building"="public"](poly:"{poly_str}");
-          way["building"="public"](poly:"{poly_str}");
-          relation["building"="public"](poly:"{poly_str}");
-          node["government"](poly:"{poly_str}");
-          way["government"](poly:"{poly_str}");
-          relation["government"](poly:"{poly_str}");
-          node["aeroway"~"^(aerodrome|terminal|heliport)$"](poly:"{poly_str}");
-          way["aeroway"~"^(aerodrome|terminal|heliport)$"](poly:"{poly_str}");
-          relation["aeroway"~"^(aerodrome|terminal|heliport)$"](poly:"{poly_str}");
+          nwr["office"="government"];
+          nwr["government"];
+          nwr["building"~"^(government|public|palace|castle)$"];
+          nwr["historic"~"^(castle|palace|monument|memorial|fort)$"];
+          nwr["tourism"~"^(attraction|museum)$"];
+          nwr["amenity"~"^(restaurant|cafe|bank|hospital|townhall|courthouse|police|embassy)$"];
+          nwr["shop"];
         );
         out center;
         """
@@ -132,20 +136,39 @@ class EnrichmentServicer(enrichment_pb2_grpc.EnrichmentServiceServicer):
             data = response.json()
 
             businesses = []
-            for element in data.get('elements', []):
+            elements = data.get('elements', [])
+            print(f"Overpass returned {len(elements)} elements")
+
+            for element in elements:
                 tags = element.get('tags', {})
                 name = tags.get('name', 'Unnamed')
 
-                # Prioritize specific tags: aeroway > shop > amenity > government > office > building
-                business_type = (
-                    tags.get('aeroway') or
-                    tags.get('shop') or
-                    tags.get('amenity') or
-                    tags.get('government') or
-                    tags.get('office') or
-                    (tags.get('building') if tags.get('building') in ['government', 'public'] else None) or
-                    'business'
-                )
+                # Prioritize specific tags for entity type classification
+                # Priority: historic > tourism > military > aeroway > shop > amenity > government >
+                # office > public_transport > railway > power > man_made > leisure > building
+                historic_val = tags.get('historic')
+                if historic_val:
+                    # Add palace subtype if available
+                    castle_type = tags.get('castle_type')
+                    business_type = f"{historic_val}:{castle_type}" if castle_type else historic_val
+                else:
+                    business_type = (
+                        tags.get('tourism') or
+                        tags.get('military') or
+                        (f"landuse:{tags.get('landuse')}" if tags.get('landuse') == 'military' else None) or
+                        tags.get('aeroway') or
+                        tags.get('shop') or
+                        tags.get('amenity') or
+                        tags.get('government') or
+                        tags.get('office') or
+                        tags.get('public_transport') or
+                        tags.get('railway') or
+                        tags.get('power') or
+                        tags.get('man_made') or
+                        tags.get('leisure') or
+                        (tags.get('building') if tags.get('building') in ['government', 'public', 'palace', 'castle'] else None) or
+                        'business'
+                    )
                 address = tags.get('addr:street', '')
 
                 # Extract contact information from OSM tags
@@ -153,10 +176,27 @@ class EnrichmentServicer(enrichment_pb2_grpc.EnrichmentServiceServicer):
                 website = tags.get('website') or tags.get('contact:website', '')
                 email = tags.get('email') or tags.get('contact:email', '')
 
+                # Get coordinates - for relations, Overpass returns center coordinates
+                # in the 'center' object, for nodes/ways it's directly in lat/lon
+                if 'lat' in element and 'lon' in element:
+                    lat = element['lat']
+                    lng = element['lon']
+                elif 'center' in element:
+                    lat = element['center']['lat']
+                    lng = element['center']['lon']
+                else:
+                    print(f"  WARNING: No coordinates found for {name}, skipping")
+                    continue
+
+                # Filter: only include businesses actually inside the polygon
+                point = Point(lng, lat)
+                if not polygon.contains(point):
+                    continue
+
                 businesses.append(enrichment_pb2.Business(
                     name=name,
-                    lat=element.get('lat', 0),
-                    lng=element.get('lon', 0),
+                    lat=lat,
+                    lng=lng,
                     type=business_type,
                     address=address,
                     phone=phone,
@@ -164,10 +204,19 @@ class EnrichmentServicer(enrichment_pb2_grpc.EnrichmentServiceServicer):
                     email=email
                 ))
 
-            return businesses
+                # Log interesting entities (palaces, castles, historic sites)
+                if any(tag in tags for tag in ['historic', 'tourism']) or tags.get('building') in ['palace', 'castle']:
+                    print(f"  → {name} (type={business_type}, building={tags.get('building', 'N/A')}, historic={tags.get('historic', 'N/A')}, tourism={tags.get('tourism', 'N/A')})")
+
+            return businesses, None  # Success, no error
+        except httpx.TimeoutException as e:
+            error_msg = "Overpass API timeout - try a smaller area or try again later"
+            print(f"Timeout querying Overpass API: {e}")
+            return [], error_msg
         except Exception as e:
-            print(f"Error querying Overpass API: {e}")
-            return []
+            error_msg = f"Error querying Overpass API: {str(e)}"
+            print(error_msg)
+            return [], error_msg
 
 
 def serve():

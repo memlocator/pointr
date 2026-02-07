@@ -14,6 +14,13 @@ from config import settings
 
 
 class ReconServicer(recon_pb2_grpc.ReconServiceServicer):
+    def Health(self, request, context):
+        """Health check endpoint - returns service status without doing any actual recon"""
+        return recon_pb2.HealthResponse(
+            status="healthy",
+            message="Recon service operational"
+        )
+
     def RunRecon(self, request, context):
         """Run reconnaissance on provided domains"""
         results = []
@@ -347,40 +354,55 @@ class ReconServicer(recon_pb2_grpc.ReconServiceServicer):
         return str(date_value)
 
     def _get_asn_info(self, domain):
-        """Get ASN information using Team Cymru DNS-based lookup"""
+        """Get comprehensive ASN information using multiple sources"""
         try:
             # First resolve domain to IP
             ip = socket.gethostbyname(domain)
 
-            # Reverse IP for Team Cymru query
-            reversed_ip = '.'.join(reversed(ip.split('.')))
+            # 1. Get basic ASN from Team Cymru (fast, reliable)
+            asn_data = self._get_cymru_asn(ip)
+            if not asn_data:
+                return None
 
-            # Query Team Cymru for ASN
-            try:
-                answers = dns.resolver.resolve(f'{reversed_ip}.{settings.cymru_asn_domain}', 'TXT')
-                for rdata in answers:
-                    txt = str(rdata).strip('"')
-                    parts = txt.split(' | ')
-                    if len(parts) >= 2:
-                        asn = parts[0].strip()
-                        country = parts[1].strip()
+            asn = asn_data['asn']
+            country = asn_data['country']
+            bgp_prefix = asn_data['prefix']
+            rir = asn_data['rir']
 
-                        # Get ASN details
-                        asn_details = self._get_asn_details(asn)
+            # 2. Get detailed BGP data from RIPEstat (with BGPView fallback)
+            bgp_data = self._get_ripestat_data(asn)
 
-                        return recon_pb2.ASNInfo(
-                            asn=f'AS{asn}',
-                            organization=asn_details.get('org', ''),
-                            ip_ranges=asn_details.get('ranges', []),
-                            country=country
-                        )
-            except Exception as e:
-                print(f"Error querying ASN for {domain}: {e}")
+            # Fallback to BGPView if RIPEstat didn't return data
+            if not bgp_data.get('org') and not bgp_data.get('prefixes_v4'):
+                print(f"  Falling back to BGPView for AS{asn}")
+                bgp_data = self._get_bgpview_data(asn)
+
+            # 3. Get peering info from PeeringDB
+            peering_data = self._get_peeringdb_data(asn)
+
+            return recon_pb2.ASNInfo(
+                asn=f'AS{asn}',
+                organization=bgp_data.get('org', ''),
+                ip_ranges=[],  # Deprecated - use prefixes_v4/v6
+                country=country,
+                prefixes_v4=bgp_data.get('prefixes_v4', [])[:10],  # Limit to first 10
+                prefixes_v6=bgp_data.get('prefixes_v6', [])[:10],  # Limit to first 10
+                prefix_count_v4=bgp_data.get('prefix_count_v4', 0),
+                prefix_count_v6=bgp_data.get('prefix_count_v6', 0),
+                peers=bgp_data.get('peers', [])[:20],  # Limit to first 20
+                upstreams=bgp_data.get('upstreams', [])[:10],
+                downstreams=bgp_data.get('downstreams', [])[:10],
+                peering_policy=peering_data.get('policy', ''),
+                network_type=peering_data.get('type', ''),
+                peering_facilities=peering_data.get('facilities', [])[:10],
+                rir=rir,
+                abuse_contacts=bgp_data.get('abuse_contacts', []),
+                bgp_prefix=bgp_prefix
+            )
 
         except Exception as e:
-            print(f"Error resolving IP for {domain}: {e}")
-
-        return None
+            print(f"Error getting ASN info for {domain}: {e}")
+            return None
 
     def _get_asn_details(self, asn):
         """Get ASN organization name using Team Cymru"""
@@ -398,6 +420,251 @@ class ReconServicer(recon_pb2_grpc.ReconServiceServicer):
             pass
 
         return {'org': '', 'ranges': []}
+
+    def _get_cymru_asn(self, ip):
+        """Get enhanced ASN data from Team Cymru (includes prefix, RIR, country)"""
+        try:
+            # Reverse IP for Team Cymru query
+            reversed_ip = '.'.join(reversed(ip.split('.')))
+
+            # Query Team Cymru for full ASN data
+            # Format: "ASN | BGP Prefix | Country | RIR | Allocated Date"
+            answers = dns.resolver.resolve(f'{reversed_ip}.origin.asn.cymru.com', 'TXT')
+            for rdata in answers:
+                txt = str(rdata).strip('"')
+                parts = [p.strip() for p in txt.split(' | ')]
+                if len(parts) >= 4:
+                    return {
+                        'asn': parts[0],
+                        'prefix': parts[1],
+                        'country': parts[2],
+                        'rir': parts[3],  # ARIN, RIPE, APNIC, etc.
+                    }
+        except Exception as e:
+            print(f"Error querying Cymru for IP {ip}: {e}")
+
+        return None
+
+    def _get_ripestat_data(self, asn):
+        """Get comprehensive BGP data from RIPEstat API"""
+        try:
+            # RIPEstat works for all RIRs, not just RIPE
+            base_url = "https://stat.ripe.net/data"
+
+            result = {
+                'org': '',
+                'prefixes_v4': [],
+                'prefixes_v6': [],
+                'prefix_count_v4': 0,
+                'prefix_count_v6': 0,
+                'peers': [],
+                'upstreams': [],
+                'downstreams': [],
+                'abuse_contacts': []
+            }
+
+            # 1. Get announced prefixes (BGP routes)
+            try:
+                response = httpx.get(
+                    f"{base_url}/announced-prefixes/data.json",
+                    params={'resource': asn},
+                    timeout=5.0
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    prefixes = data.get('data', {}).get('prefixes', [])
+
+                    for prefix_obj in prefixes:
+                        prefix = prefix_obj.get('prefix', '')
+                        if ':' in prefix:  # IPv6
+                            result['prefixes_v6'].append(prefix)
+                        else:  # IPv4
+                            result['prefixes_v4'].append(prefix)
+
+                    result['prefix_count_v4'] = len(result['prefixes_v4'])
+                    result['prefix_count_v6'] = len(result['prefixes_v6'])
+            except Exception as e:
+                print(f"Error getting RIPEstat prefixes for {asn}: {e}")
+
+            # 2. Get AS neighbors (peers, upstreams, downstreams)
+            try:
+                response = httpx.get(
+                    f"{base_url}/asn-neighbours/data.json",
+                    params={'resource': asn},
+                    timeout=5.0
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    neighbours = data.get('data', {}).get('neighbours', [])
+
+                    for neighbour in neighbours:
+                        asn_num = neighbour.get('asn')
+                        neighbour_type = neighbour.get('type', '').lower()
+
+                        if not asn_num:
+                            continue
+
+                        asn_str = f"AS{asn_num}"
+
+                        if neighbour_type == 'left':  # Upstream (transit provider)
+                            result['upstreams'].append(asn_str)
+                        elif neighbour_type == 'right':  # Downstream (customer)
+                            result['downstreams'].append(asn_str)
+                        else:  # Peer
+                            result['peers'].append(asn_str)
+            except Exception as e:
+                print(f"Error getting RIPEstat neighbours for {asn}: {e}")
+
+            # 3. Get abuse contacts
+            try:
+                response = httpx.get(
+                    f"{base_url}/abuse-contact-finder/data.json",
+                    params={'resource': asn},
+                    timeout=5.0
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    contacts = data.get('data', {}).get('abuse_contacts', [])
+                    result['abuse_contacts'] = contacts
+            except Exception as e:
+                print(f"Error getting RIPEstat abuse contacts for {asn}: {e}")
+
+            # 4. Get AS holder (organization name)
+            try:
+                response = httpx.get(
+                    f"{base_url}/as-overview/data.json",
+                    params={'resource': asn},
+                    timeout=5.0
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    holder = data.get('data', {}).get('holder', '')
+                    result['org'] = holder
+            except Exception as e:
+                print(f"Error getting RIPEstat AS overview for {asn}: {e}")
+
+            return result
+
+        except Exception as e:
+            print(f"Error getting RIPEstat data for {asn}: {e}")
+            return {
+                'org': '',
+                'prefixes_v4': [],
+                'prefixes_v6': [],
+                'prefix_count_v4': 0,
+                'prefix_count_v6': 0,
+                'peers': [],
+                'upstreams': [],
+                'downstreams': [],
+                'abuse_contacts': []
+            }
+
+    def _get_bgpview_data(self, asn):
+        """Get BGP data from BGPView API (fallback for RIPEstat)"""
+        try:
+            # Remove 'AS' prefix if present
+            asn_num = asn.replace('AS', '')
+
+            response = httpx.get(
+                f"https://api.bgpview.io/asn/{asn_num}",
+                timeout=10.0,
+                headers={'User-Agent': 'Pointr-Recon/1.0'}
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                asn_data = data.get('data', {})
+
+                result = {
+                    'org': asn_data.get('name', ''),
+                    'prefixes_v4': [],
+                    'prefixes_v6': [],
+                    'prefix_count_v4': asn_data.get('ipv4_prefix_count', 0),
+                    'prefix_count_v6': asn_data.get('ipv6_prefix_count', 0),
+                    'peers': [],
+                    'upstreams': [],
+                    'downstreams': [],
+                    'abuse_contacts': [asn_data.get('abuse_contacts', [])[0]] if asn_data.get('abuse_contacts') else []
+                }
+
+                # Get prefixes (limited to first 10 of each)
+                prefixes = asn_data.get('prefixes', [])
+                for prefix_obj in prefixes[:10]:
+                    prefix = prefix_obj.get('prefix', '')
+                    ip_version = prefix_obj.get('ip_version', 4)
+
+                    if ip_version == 6:
+                        result['prefixes_v6'].append(prefix)
+                    else:
+                        result['prefixes_v4'].append(prefix)
+
+                # Get upstream/downstream from peers
+                upstreams = asn_data.get('upstreams', [])
+                for upstream in upstreams[:10]:
+                    result['upstreams'].append(f"AS{upstream.get('asn', '')}")
+
+                downstreams = asn_data.get('downstreams', [])
+                for downstream in downstreams[:10]:
+                    result['downstreams'].append(f"AS{downstream.get('asn', '')}")
+
+                peers = asn_data.get('peers', [])
+                for peer in peers[:20]:
+                    result['peers'].append(f"AS{peer.get('asn', '')}")
+
+                return result
+
+        except Exception as e:
+            print(f"Error getting BGPView data for {asn}: {e}")
+
+        return {
+            'org': '',
+            'prefixes_v4': [],
+            'prefixes_v6': [],
+            'prefix_count_v4': 0,
+            'prefix_count_v6': 0,
+            'peers': [],
+            'upstreams': [],
+            'downstreams': [],
+            'abuse_contacts': []
+        }
+
+    def _get_peeringdb_data(self, asn):
+        """Get peering information from PeeringDB API"""
+        try:
+            # Remove 'AS' prefix if present
+            asn_num = asn.replace('AS', '')
+
+            response = httpx.get(
+                f"https://api.peeringdb.com/api/net",
+                params={'asn': asn_num},
+                timeout=5.0,
+                headers={'User-Agent': 'Pointr-Recon/1.0'}
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                networks = data.get('data', [])
+
+                if networks:
+                    net = networks[0]  # Get first match
+
+                    # Map policy codes to readable strings
+                    policy_map = {
+                        'Open': 'Open',
+                        'Selective': 'Selective',
+                        'Restrictive': 'Restrictive',
+                        'No': 'No Peering'
+                    }
+
+                    return {
+                        'policy': policy_map.get(net.get('policy_general', ''), ''),
+                        'type': net.get('info_type', ''),  # Cable/DSL, NSP, Content, etc.
+                        'facilities': []  # Would need additional API calls
+                    }
+        except Exception as e:
+            print(f"Error getting PeeringDB data for {asn}: {e}")
+
+        return {'policy': '', 'type': '', 'facilities': []}
 
 
 def serve():
