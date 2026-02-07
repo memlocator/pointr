@@ -251,32 +251,153 @@
     <!-- ASN Info -->
     {#if result.asn_info && result.asn_info.asn}
       <div class="bg-gray-900 border border-gray-700 p-4">
-        <h4 class="text-sm font-bold text-gray-400 tracking-wide mb-3">ASN INFORMATION</h4>
+        <h4 class="text-sm font-bold text-gray-400 tracking-wide mb-3">ASN / BGP INFORMATION</h4>
         <div class="space-y-2 text-xs">
           {#if result.asn_info.asn}
             <div class="flex gap-2">
-              <span class="text-gray-500 w-24">ASN:</span>
+              <span class="text-gray-500 w-32">ASN:</span>
               <span class="text-orange-400 font-mono">{result.asn_info.asn}</span>
             </div>
           {/if}
           {#if result.asn_info.organization}
             <div class="flex gap-2">
-              <span class="text-gray-500 w-24">Organization:</span>
+              <span class="text-gray-500 w-32">Organization:</span>
               <span class="text-gray-300">{result.asn_info.organization}</span>
             </div>
           {/if}
           {#if result.asn_info.country}
             <div class="flex gap-2">
-              <span class="text-gray-500 w-24">Country:</span>
+              <span class="text-gray-500 w-32">Country:</span>
               <span class="text-gray-300">{result.asn_info.country}</span>
             </div>
           {/if}
-          {#if result.asn_info.ip_ranges && result.asn_info.ip_ranges.length > 0}
+          {#if result.asn_info.rir}
             <div class="flex gap-2">
-              <span class="text-gray-500 w-24">IP Ranges:</span>
+              <span class="text-gray-500 w-32">RIR:</span>
+              <span class="text-gray-300">{result.asn_info.rir}</span>
+            </div>
+          {/if}
+          {#if result.asn_info.network_type}
+            <div class="flex gap-2">
+              <span class="text-gray-500 w-32">Network Type:</span>
+              <span class="text-gray-300">{result.asn_info.network_type}</span>
+            </div>
+          {/if}
+          {#if result.asn_info.peering_policy}
+            <div class="flex gap-2">
+              <span class="text-gray-500 w-32">Peering Policy:</span>
+              <span class="text-gray-300">{result.asn_info.peering_policy}</span>
+            </div>
+          {/if}
+          {#if result.asn_info.bgp_prefix}
+            <div class="flex gap-2">
+              <span class="text-gray-500 w-32">BGP Prefix:</span>
+              <span class="text-purple-400 font-mono">{result.asn_info.bgp_prefix}</span>
+            </div>
+          {/if}
+
+          <!-- BGP Prefixes IPv4 -->
+          {#if result.asn_info.prefix_count_v4 > 0}
+            <div class="flex gap-2">
+              <span class="text-gray-500 w-32">IPv4 Prefixes:</span>
               <div class="flex-1">
-                {#each result.asn_info.ip_ranges as range}
-                  <div class="text-gray-300 font-mono">{range}</div>
+                <div class="text-gray-400 mb-1">
+                  {result.asn_info.prefix_count_v4} total
+                  {#if result.asn_info.prefixes_v4 && result.asn_info.prefixes_v4.length > 0}
+                    (showing first {result.asn_info.prefixes_v4.length})
+                  {/if}
+                </div>
+                {#if result.asn_info.prefixes_v4 && result.asn_info.prefixes_v4.length > 0}
+                  <div class="space-y-1">
+                    {#each result.asn_info.prefixes_v4 as prefix}
+                      <div class="text-purple-400 font-mono text-xs">{prefix}</div>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+            </div>
+          {/if}
+
+          <!-- BGP Prefixes IPv6 -->
+          {#if result.asn_info.prefix_count_v6 > 0}
+            <div class="flex gap-2">
+              <span class="text-gray-500 w-32">IPv6 Prefixes:</span>
+              <div class="flex-1">
+                <div class="text-gray-400 mb-1">
+                  {result.asn_info.prefix_count_v6} total
+                  {#if result.asn_info.prefixes_v6 && result.asn_info.prefixes_v6.length > 0}
+                    (showing first {result.asn_info.prefixes_v6.length})
+                  {/if}
+                </div>
+                {#if result.asn_info.prefixes_v6 && result.asn_info.prefixes_v6.length > 0}
+                  <div class="space-y-1">
+                    {#each result.asn_info.prefixes_v6 as prefix}
+                      <div class="text-purple-400 font-mono text-xs">{prefix}</div>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+            </div>
+          {/if}
+
+          <!-- Upstreams (Transit Providers) -->
+          {#if result.asn_info.upstreams && result.asn_info.upstreams.length > 0}
+            <div class="flex gap-2">
+              <span class="text-gray-500 w-32">Upstreams:</span>
+              <div class="flex-1 flex flex-wrap gap-2">
+                {#each result.asn_info.upstreams as upstream}
+                  <span class="px-2 py-1 bg-gray-800 border border-blue-500/30 text-blue-400 font-mono text-xs">{upstream}</span>
+                {/each}
+              </div>
+            </div>
+          {/if}
+
+          <!-- Peers -->
+          {#if result.asn_info.peers && result.asn_info.peers.length > 0}
+            <div class="flex gap-2">
+              <span class="text-gray-500 w-32">Peers:</span>
+              <div class="flex-1">
+                <div class="text-gray-400 mb-1">{result.asn_info.peers.length} peer ASNs</div>
+                <div class="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+                  {#each result.asn_info.peers as peer}
+                    <span class="px-2 py-1 bg-gray-800 border border-green-500/30 text-green-400 font-mono text-xs">{peer}</span>
+                  {/each}
+                </div>
+              </div>
+            </div>
+          {/if}
+
+          <!-- Downstreams (Customers) -->
+          {#if result.asn_info.downstreams && result.asn_info.downstreams.length > 0}
+            <div class="flex gap-2">
+              <span class="text-gray-500 w-32">Downstreams:</span>
+              <div class="flex-1 flex flex-wrap gap-2">
+                {#each result.asn_info.downstreams as downstream}
+                  <span class="px-2 py-1 bg-gray-800 border border-yellow-500/30 text-yellow-400 font-mono text-xs">{downstream}</span>
+                {/each}
+              </div>
+            </div>
+          {/if}
+
+          <!-- Peering Facilities -->
+          {#if result.asn_info.peering_facilities && result.asn_info.peering_facilities.length > 0}
+            <div class="flex gap-2">
+              <span class="text-gray-500 w-32">Peering IXs:</span>
+              <div class="flex-1">
+                {#each result.asn_info.peering_facilities as facility}
+                  <div class="text-gray-300">{facility}</div>
+                {/each}
+              </div>
+            </div>
+          {/if}
+
+          <!-- Abuse Contacts -->
+          {#if result.asn_info.abuse_contacts && result.asn_info.abuse_contacts.length > 0}
+            <div class="flex gap-2">
+              <span class="text-gray-500 w-32">Abuse Contacts:</span>
+              <div class="flex-1">
+                {#each result.asn_info.abuse_contacts as contact}
+                  <div class="text-gray-300">{contact}</div>
                 {/each}
               </div>
             </div>
