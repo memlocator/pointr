@@ -88,12 +88,50 @@
     }
   }
 
+  function deletePolygon(polygonId) {
+    if (draw) {
+      draw.delete(polygonId)
+    }
+    savePolygons()
+  }
+
+  function goToPolygon(polygon) {
+    if (!map || !polygon.geometry) return
+
+    const coords = polygon.geometry.coordinates[0]
+
+    // Calculate bounds
+    let minLng = Infinity, minLat = Infinity
+    let maxLng = -Infinity, maxLat = -Infinity
+
+    coords.forEach(([lng, lat]) => {
+      minLng = Math.min(minLng, lng)
+      minLat = Math.min(minLat, lat)
+      maxLng = Math.max(maxLng, lng)
+      maxLat = Math.max(maxLat, lat)
+    })
+
+    map.fitBounds(
+      [[minLng, minLat], [maxLng, maxLat]],
+      { padding: 100, duration: 1500 }
+    )
+  }
+
+  function getPolygonLabel(polygon, index) {
+    // Try to generate a meaningful label
+    if (polygon.properties?.name) {
+      return polygon.properties.name
+    }
+    return `Polygon ${index + 1}`
+  }
+
   let isDrawingCircle = $state(false)
   let isDrawingPolygon = $state(false)
   let circleCenter = null
   let circleClickHandler = null
   let circleMoveHandler = null
   let previewCircleSource = null
+  let showPolygonList = $state(false)
 
   function startPolygonDrawing() {
     if (draw) {
@@ -230,6 +268,16 @@
         }
 
         const enrichmentData = await response.json()
+        console.log('Enrichment response:', enrichmentData)
+
+        // Check for errors from enrichment service
+        if (enrichmentData.error) {
+          console.warn('Enrichment error:', enrichmentData.error)
+          alert(`⚠️ ${enrichmentData.error}`)
+          // Continue with partial results if any businesses were returned
+        }
+
+        console.log(`Received ${enrichmentData.businesses.length} businesses`)
         allBusinesses.push(...enrichmentData.businesses)
       }
 
@@ -674,7 +722,51 @@
   <!-- Custom drawing controls -->
   <div class="absolute flex flex-col gap-2" style="top: 10px; left: 10px; z-index: 1000; pointer-events: auto;">
     <!-- Drawing tools -->
-    <div class="bg-gray-900 border-2 border-gray-700 flex flex-col">
+    <div class="bg-gray-900 border-2 border-gray-700 flex flex-col relative">
+      <!-- Polygon List Button -->
+      {#if polygons.length > 0}
+        <button
+          onclick={() => showPolygonList = !showPolygonList}
+          class={`w-8 h-8 flex items-center justify-center transition-colors duration-200 ${
+            showPolygonList
+              ? 'bg-gray-700 border-l-2 border-orange-500'
+              : 'bg-gray-900 hover:bg-gray-800'
+          }`}
+          title={`${polygons.length} polygon${polygons.length > 1 ? 's' : ''}`}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class={showPolygonList ? 'text-orange-500' : 'text-white'}>
+            <path d="M2 4 L14 4 M2 8 L14 8 M2 12 L14 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+
+        <!-- Dropdown List -->
+        {#if showPolygonList}
+          <div class="absolute top-0 left-full ml-2 bg-gray-900 border-2 border-gray-700 shadow-lg" style="max-height: 200px; min-width: 200px; z-index: 2000;">
+            <div class="overflow-y-auto" style="max-height: 200px;">
+              {#each polygons as polygon, index (polygon.id)}
+                <div class="flex items-center gap-2 px-3 py-2 border-b border-gray-800 last:border-0 hover:bg-gray-800 transition-colors">
+                  <button
+                    onclick={() => goToPolygon(polygon)}
+                    class="flex-1 text-left text-xs text-gray-300 hover:text-orange-500 transition-colors"
+                    title="Go to polygon"
+                  >
+                    {getPolygonLabel(polygon, index)}
+                  </button>
+                  <button
+                    onclick={() => deletePolygon(polygon.id)}
+                    class="w-5 h-5 flex items-center justify-center text-gray-500 hover:text-red-500 hover:bg-gray-700 transition-colors"
+                    title="Delete polygon"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <path d="M2 2 L10 10 M10 2 L2 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
+      {/if}
       <!-- Polygon button -->
       <button
         onclick={startPolygonDrawing}
