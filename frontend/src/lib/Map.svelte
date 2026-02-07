@@ -6,6 +6,7 @@
   import { BUSINESS_CATEGORIES, generateColorExpression } from './businessCategories.js'
   import LocationSearchBar from './components/LocationSearchBar.svelte'
   import DrawingToolbar from './components/DrawingToolbar.svelte'
+  import CategoryFilter from './components/CategoryFilter.svelte'
 
   let {
     businesses = $bindable([]),
@@ -13,12 +14,49 @@
     mapCenter = $bindable([-0.09, 51.505]),
     mapZoom = $bindable(13),
     currentView = $bindable('map'),
-    searchQuery = $bindable('')
+    searchQuery = $bindable(''),
+    enabledCategories = $bindable({})
   } = $props()
   let mapContainer
   let map
   let draw
   let isEnriching = $state(false)
+
+  // Filter businesses based on enabled categories
+  let filteredBusinesses = $derived.by(() => {
+    return businesses.filter(business => {
+      const category = BUSINESS_CATEGORIES.find(cat =>
+        cat.types.includes(business.type)
+      )
+      const categoryName = category ? category.name : 'Other'
+      return enabledCategories[categoryName]
+    })
+  })
+
+  // Update map when filtered businesses change
+  $effect(() => {
+    if (map && map.getSource('businesses')) {
+      const geojson = {
+        type: 'FeatureCollection',
+        features: filteredBusinesses.map(business => ({
+          type: 'Feature',
+          geometry: {
+            type: 'Point',
+            coordinates: [business.lng, business.lat]
+          },
+          properties: {
+            name: business.name,
+            type: business.type,
+            address: business.address,
+            phone: business.phone,
+            website: business.website,
+            email: business.email
+          }
+        }))
+      }
+      map.getSource('businesses').setData(geojson)
+    }
+  })
 
   function handleLocationSelect(result) {
     if (map) {
@@ -657,6 +695,11 @@
     onGoToPolygon={goToPolygon}
     onDeletePolygon={deletePolygon}
   />
+
+  <!-- Category Filter -->
+  <div class="absolute bottom-6 right-6" style="z-index: 1000; max-width: 280px;">
+    <CategoryFilter {businesses} bind:enabledCategories />
+  </div>
 
   <!-- Legend -->
   <div class="absolute bottom-6 left-6 bg-gray-900 border-2 border-gray-700 p-3 shadow-lg" style="z-index: 1000;">

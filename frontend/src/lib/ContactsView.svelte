@@ -1,12 +1,31 @@
 <script>
   import DataTable from './components/DataTable/DataTable.svelte'
+  import { BUSINESS_CATEGORIES } from './businessCategories.js'
+  import CategoryFilter from './components/CategoryFilter.svelte'
 
-  let { businesses = [], selectedBusinesses = $bindable([]), currentView = $bindable('contacts') } = $props()
+  let {
+    businesses = [],
+    selectedBusinesses = $bindable([]),
+    currentView = $bindable('contacts'),
+    enabledCategories = $bindable({})
+  } = $props()
 
-  // Filter to only businesses with phone, email, or website
-  let contactBusinesses = $derived(
-    businesses.filter(b => b.phone || b.email || b.website)
-  )
+  // Filter by both category and contact info
+  let contactBusinesses = $derived.by(() => {
+    return businesses.filter(business => {
+      // Must have contact info
+      if (!business.phone && !business.email && !business.website) {
+        return false
+      }
+
+      // Must be in enabled category
+      const category = BUSINESS_CATEGORIES.find(cat =>
+        cat.types.includes(business.type)
+      )
+      const categoryName = category ? category.name : 'Other'
+      return enabledCategories[categoryName]
+    })
+  })
 
   const columns = [
     { id: 'name', header: 'Name' },
@@ -59,6 +78,9 @@
       </div>
     </div>
   {/if}
+
+  <!-- Category Filter -->
+  <CategoryFilter {businesses} bind:enabledCategories />
 
   <div class="bg-gray-800 border-2 border-gray-700 shadow-lg flex-1 overflow-hidden">
     <DataTable

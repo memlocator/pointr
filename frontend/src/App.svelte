@@ -5,6 +5,7 @@
   import ContactsView from './lib/ContactsView.svelte'
   import ReconView from './lib/ReconView.svelte'
   import { loadFromStorage, saveToStorage } from './lib/stores/persistence.js'
+  import { BUSINESS_CATEGORIES } from './lib/businessCategories.js'
 
   // Load persisted state from localStorage or use defaults
   let currentView = $state('map')
@@ -14,6 +15,16 @@
   let mapZoom = $state(loadFromStorage('mapZoom', 4)) // Zoomed out to show Europe
   let selectedBusinesses = $state([])
   let searchQuery = $state('')
+
+  // Category filtering - initialize all as enabled
+  let enabledCategories = $state(loadFromStorage('enabledCategories', {}))
+
+  // Ensure all categories are initialized
+  BUSINESS_CATEGORIES.forEach(cat => {
+    if (enabledCategories[cat.name] === undefined) {
+      enabledCategories[cat.name] = true
+    }
+  })
 
   // Auto-save to localStorage when state changes
   $effect(() => {
@@ -31,20 +42,24 @@
   $effect(() => {
     saveToStorage('mapZoom', mapZoom)
   })
+
+  $effect(() => {
+    saveToStorage('enabledCategories', enabledCategories)
+  })
 </script>
 
 <div class="h-screen w-screen flex flex-col bg-gray-900">
   <Topbar bind:currentView businessCount={businesses.length} />
   <div class="flex-1 overflow-hidden">
     {#if currentView === 'map'}
-      <Map bind:businesses bind:polygons bind:mapCenter bind:mapZoom bind:currentView bind:searchQuery />
+      <Map bind:businesses bind:polygons bind:mapCenter bind:mapZoom bind:currentView bind:searchQuery bind:enabledCategories />
     {:else if currentView === 'list'}
       {#key currentView}
-        <ListView {businesses} bind:selectedBusinesses bind:currentView bind:searchQuery />
+        <ListView {businesses} bind:selectedBusinesses bind:currentView bind:searchQuery bind:enabledCategories />
       {/key}
     {:else if currentView === 'contacts'}
       {#key currentView}
-        <ContactsView {businesses} bind:selectedBusinesses bind:currentView />
+        <ContactsView {businesses} bind:selectedBusinesses bind:currentView bind:enabledCategories />
       {/key}
     {:else if currentView === 'recon'}
       <ReconView bind:selectedBusinesses />
