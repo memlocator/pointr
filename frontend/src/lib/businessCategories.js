@@ -3,7 +3,7 @@
 export const BUSINESS_CATEGORIES = [
   {
     name: 'Food & Dining',
-    color: '#f97316', // Orange
+    color: '#fb923c', // Bright Orange
     types: [
       'restaurant', 'cafe', 'fast_food', 'bar', 'pub', 'food_court',
       'bakery', 'butcher'
@@ -21,7 +21,7 @@ export const BUSINESS_CATEGORIES = [
   },
   {
     name: 'Healthcare',
-    color: '#10b981', // Green
+    color: '#22c55e', // Bright Green
     types: [
       'pharmacy', 'clinic', 'doctors', 'dentist', 'hospital', 'veterinary',
       'greengrocer', 'florist', 'garden_centre', 'chemist', 'optician'
@@ -29,7 +29,7 @@ export const BUSINESS_CATEGORIES = [
   },
   {
     name: 'Services',
-    color: '#a855f7', // Purple
+    color: '#f472b6', // Bright Pink
     types: [
       'bank', 'bureau_de_change', 'hairdresser', 'beauty'
     ]
@@ -49,21 +49,21 @@ export const BUSINESS_CATEGORIES = [
   },
   {
     name: 'Offices',
-    color: '#eab308', // Yellow
+    color: '#fde047', // Bright Yellow
     types: [
       'office', 'business'
     ]
   },
   {
     name: 'Transportation',
-    color: '#ec4899', // Pink
+    color: '#a78bfa', // Light Purple
     types: [
       'station', 'bus_station', 'halt', 'ferry_terminal'
     ]
   },
   {
     name: 'Infrastructure',
-    color: '#8b5cf6', // Violet
+    color: '#8b5cf6', // Deep Violet
     types: [
       // Aviation
       'aerodrome', 'terminal', 'heliport', 'hangar',
@@ -93,7 +93,7 @@ export const BUSINESS_CATEGORIES = [
   },
   {
     name: 'Historic & Tourism',
-    color: '#fbbf24', // Amber
+    color: '#f59e0b', // Amber/Gold
     types: [
       'castle', 'castle:palace', 'palace', 'fort', 'monument', 'memorial',
       'manor', 'citywalls', 'attraction', 'museum',
@@ -102,7 +102,7 @@ export const BUSINESS_CATEGORIES = [
   },
   {
     name: 'Other',
-    color: '#ffffff', // White
+    color: '#d1d5db', // Light Gray
     types: [] // Default fallback
   }
 ]

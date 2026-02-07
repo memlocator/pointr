@@ -275,36 +275,7 @@
         allBusinesses.push(...enrichmentData.businesses)
       }
 
-      // Convert businesses to GeoJSON
-      const geojson = {
-        type: 'FeatureCollection',
-        features: allBusinesses.map(business => {
-          const properties = {
-            name: business.name,
-            type: business.type,
-            address: business.address
-          }
-          // Only add contact properties if they have values
-          if (business.phone) properties.phone = business.phone
-          if (business.website) properties.website = business.website
-          if (business.email) properties.email = business.email
-
-          return {
-            type: 'Feature',
-            geometry: {
-              type: 'Point',
-              coordinates: [business.lng, business.lat]
-            },
-            properties
-          }
-        })
-      }
-
-      // Update the source
-      if (map.getSource('businesses')) {
-        map.getSource('businesses').setData(geojson)
-      }
-
+      // Update businesses array - the $effect will handle map updates with filtering
       businesses = allBusinesses
       console.log(`Added ${allBusinesses.length} businesses`)
     } catch (error) {

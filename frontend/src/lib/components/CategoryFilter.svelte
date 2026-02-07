@@ -3,27 +3,28 @@
 
   let {
     businesses = [],
-    enabledCategories = $bindable({}),
-    businessCounts = $derived.by(() => {
-      const counts = {}
-      BUSINESS_CATEGORIES.forEach(cat => {
-        counts[cat.name] = 0
-      })
-
-      businesses.forEach(business => {
-        const category = BUSINESS_CATEGORIES.find(cat =>
-          cat.types.includes(business.type)
-        )
-        if (category) {
-          counts[category.name]++
-        } else {
-          counts['Other']++
-        }
-      })
-
-      return counts
-    })
+    enabledCategories = $bindable({})
   } = $props()
+
+  let businessCounts = $derived.by(() => {
+    const counts = {}
+    BUSINESS_CATEGORIES.forEach(cat => {
+      counts[cat.name] = 0
+    })
+
+    businesses.forEach(business => {
+      const category = BUSINESS_CATEGORIES.find(cat =>
+        cat.types.includes(business.type)
+      )
+      if (category) {
+        counts[category.name]++
+      } else {
+        counts['Other']++
+      }
+    })
+
+    return counts
+  })
 
   let isExpanded = $state(false)
 
