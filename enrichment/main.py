@@ -140,66 +140,41 @@ class EnrichmentServicer(enrichment_pb2_grpc.EnrichmentServiceServicer):
 
         government_filter = "|".join(government_types)
 
-        # Build query based on shape type
+        # Calculate bounding box from polygon (works for both polygons and circles)
+        lats = [lat for lng, lat in coords]
+        lngs = [lng for lng, lat in coords]
+        bbox = f"{min(lats)},{min(lngs)},{max(lats)},{max(lngs)}"  # south,west,north,east
+
         if circle_params:
             center_lat, center_lng, radius_m = circle_params
-            print(f"Querying Overpass with circle: center=({center_lat:.6f}, {center_lng:.6f}), radius={radius_m}m")
-
-            # Overpass QL query using 'around' for circular queries
-            # Note: 'around' syntax: (around:radius_in_meters,lat,lon)
-            query = f"""
-            [out:json][timeout:60];
-            (
-              nwr["office"="government"](around:{radius_m},{center_lat},{center_lng});
-              nwr["government"](around:{radius_m},{center_lat},{center_lng});
-              nwr["building"~"^(government|public|palace|castle)$"](around:{radius_m},{center_lat},{center_lng});
-              nwr["historic"~"^(castle|palace|monument|memorial|fort)$"](around:{radius_m},{center_lat},{center_lng});
-              nwr["tourism"~"^(attraction|museum)$"](around:{radius_m},{center_lat},{center_lng});
-              nwr["amenity"~"^(restaurant|cafe|bank|hospital|townhall|courthouse|police|embassy|post_office|bus_station|ferry_terminal)$"](around:{radius_m},{center_lat},{center_lng});
-              nwr["shop"](around:{radius_m},{center_lat},{center_lng});
-              nwr["office"~"^(telecommunication|energy|it|company|transport|railway|airline|logistics|courier|delivery|water_utility)$"](around:{radius_m},{center_lat},{center_lng});
-              nwr["aeroway"~"^(aerodrome|terminal|hangar)$"](around:{radius_m},{center_lat},{center_lng});
-              nwr["railway"~"^(station|halt)$"](around:{radius_m},{center_lat},{center_lng});
-              nwr["public_transport"="station"](around:{radius_m},{center_lat},{center_lng});
-              nwr["man_made"~"^(mast|communications_tower|water_tower|water_works|wastewater_plant)$"](around:{radius_m},{center_lat},{center_lng});
-              nwr["power"~"^(plant|substation|generator)$"](around:{radius_m},{center_lat},{center_lng});
-              nwr["landuse"~"^(port|industrial)$"](around:{radius_m},{center_lat},{center_lng});
-              nwr["amenity"="post_depot"](around:{radius_m},{center_lat},{center_lng});
-            );
-            out bb center;
-            """
+            print(f"Querying Overpass with bbox (circle detected: center=({center_lat:.6f}, {center_lng:.6f}), radius={radius_m}m): {bbox}")
         else:
-            # Calculate bounding box from polygon (for non-circular shapes)
-            lats = [lat for lng, lat in coords]
-            lngs = [lng for lng, lat in coords]
-            bbox = f"{min(lats)},{min(lngs)},{max(lats)},{max(lngs)}"  # south,west,north,east
-
             print(f"Querying Overpass with bbox: {bbox}")
 
-            # Overpass QL query - optimized with essential entity types
-            # Using 'out bb center' to get both bounding boxes and center coordinates
-            # Note: order matters! 'out bb center' works, 'out center bb' doesn't return centers for relations
-            query = f"""
-            [out:json][timeout:60][bbox:{bbox}];
-            (
-              nwr["office"="government"];
-              nwr["government"];
-              nwr["building"~"^(government|public|palace|castle)$"];
-              nwr["historic"~"^(castle|palace|monument|memorial|fort)$"];
-              nwr["tourism"~"^(attraction|museum)$"];
-              nwr["amenity"~"^(restaurant|cafe|bank|hospital|townhall|courthouse|police|embassy|post_office|bus_station|ferry_terminal)$"];
-              nwr["shop"];
-              nwr["office"~"^(telecommunication|energy|it|company|transport|railway|airline|logistics|courier|delivery|water_utility)$"];
-              nwr["aeroway"~"^(aerodrome|terminal|hangar)$"];
-              nwr["railway"~"^(station|halt)$"];
-              nwr["public_transport"="station"];
-              nwr["man_made"~"^(mast|communications_tower|water_tower|water_works|wastewater_plant)$"];
-              nwr["power"~"^(plant|substation|generator)$"];
-              nwr["landuse"~"^(port|industrial)$"];
-              nwr["amenity"="post_depot"];
-            );
-            out bb center;
-            """
+        # Overpass QL query - optimized with essential entity types
+        # Using 'out bb center' to get both bounding boxes and center coordinates
+        # Note: order matters! 'out bb center' works, 'out center bb' doesn't return centers for relations
+        query = f"""
+        [out:json][timeout:60][bbox:{bbox}];
+        (
+          nwr["office"="government"];
+          nwr["government"];
+          nwr["building"~"^(government|public|palace|castle)$"];
+          nwr["historic"~"^(castle|palace|monument|memorial|fort)$"];
+          nwr["tourism"~"^(attraction|museum)$"];
+          nwr["amenity"~"^(restaurant|cafe|bank|hospital|townhall|courthouse|police|embassy|post_office|bus_station|ferry_terminal)$"];
+          nwr["shop"];
+          nwr["office"~"^(telecommunication|energy|it|company|transport|railway|airline|logistics|courier|delivery|water_utility)$"];
+          nwr["aeroway"~"^(aerodrome|terminal|hangar)$"];
+          nwr["railway"~"^(station|halt)$"];
+          nwr["public_transport"="station"];
+          nwr["man_made"~"^(mast|communications_tower|water_tower|water_works|wastewater_plant)$"];
+          nwr["power"~"^(plant|substation|generator)$"];
+          nwr["landuse"~"^(port|industrial)$"];
+          nwr["amenity"="post_depot"];
+        );
+        out bb center;
+        """
 
         try:
             response = httpx.post(

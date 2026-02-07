@@ -5,7 +5,9 @@
     businesses = [],
     enabledCategories = $bindable({}),
     showContactsOnly = $bindable(false),
-    hideContactToggle = false
+    hideContactToggle = false,
+    heatmapEnabled = $bindable(false),
+    heatmapCategory = $bindable('')
   } = $props()
 
   let businessCounts = $derived.by(() => {
@@ -128,6 +130,54 @@
           </button>
         </div>
       {/if}
+
+      <!-- Heatmap Mode Toggle -->
+      <div class="px-3 py-2 border-b border-gray-700">
+        <button
+          onclick={() => heatmapEnabled = !heatmapEnabled}
+          class="w-full px-2 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors flex items-center gap-2"
+        >
+          <div class={`w-4 h-4 border-2 flex items-center justify-center ${
+            heatmapEnabled
+              ? 'bg-gray-700 border-gray-500'
+              : 'border-gray-600'
+          }`}>
+            {#if heatmapEnabled}
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M2 5 L4 7 L8 3" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            {/if}
+          </div>
+          <span>Heatmap Mode</span>
+        </button>
+
+        <!-- Category selector when heatmap is enabled -->
+        {#if heatmapEnabled}
+          <div class="mt-2 space-y-1">
+            {#each BUSINESS_CATEGORIES as category}
+              {#if category.name !== 'Other' && businessCounts[category.name] > 0}
+                <button
+                  onclick={() => heatmapCategory = category.name}
+                  class="w-full px-2 py-1.5 text-xs hover:bg-gray-800 text-gray-300 transition-colors flex items-center gap-2"
+                >
+                  <div class={`w-4 h-4 border-2 rounded-full flex items-center justify-center ${
+                    heatmapCategory === category.name
+                      ? 'border-gray-400'
+                      : 'border-gray-600'
+                  }`}>
+                    {#if heatmapCategory === category.name}
+                      <div class="w-2 h-2 rounded-full bg-gray-300"></div>
+                    {/if}
+                  </div>
+                  <div class="w-3 h-3 border border-gray-700" style="background-color: {category.color}"></div>
+                  <span class="flex-1 text-left">{category.name}</span>
+                  <span class="text-gray-500 font-mono text-xs">{businessCounts[category.name]}</span>
+                </button>
+              {/if}
+            {/each}
+          </div>
+        {/if}
+      </div>
 
       <!-- Category List -->
       <div class="max-h-80 overflow-y-auto">

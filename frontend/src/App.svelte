@@ -17,15 +17,21 @@
   let searchQuery = $state('')
 
   // Category filtering - initialize all as enabled
-  let enabledCategories = $state(loadFromStorage('enabledCategories', {}))
   let showContactsOnly = $state(loadFromStorage('showContactsOnly', false))
 
-  // Ensure all categories are initialized
+  // Ensure all categories are initialized (create new object for proper reactivity)
+  const storedCategories = loadFromStorage('enabledCategories', {})
+  const initialCategories = {}
   BUSINESS_CATEGORIES.forEach(cat => {
-    if (enabledCategories[cat.name] === undefined) {
-      enabledCategories[cat.name] = true
-    }
+    initialCategories[cat.name] = storedCategories[cat.name] !== undefined
+      ? storedCategories[cat.name]
+      : true
   })
+  let enabledCategories = $state(initialCategories)
+
+  // Heatmap state
+  let heatmapEnabled = $state(loadFromStorage('heatmapEnabled', false))
+  let heatmapCategory = $state(loadFromStorage('heatmapCategory', 'Food & Dining'))
 
   // Auto-save to localStorage when state changes
   $effect(() => {
@@ -51,13 +57,21 @@
   $effect(() => {
     saveToStorage('showContactsOnly', showContactsOnly)
   })
+
+  $effect(() => {
+    saveToStorage('heatmapEnabled', heatmapEnabled)
+  })
+
+  $effect(() => {
+    saveToStorage('heatmapCategory', heatmapCategory)
+  })
 </script>
 
 <div class="h-screen w-screen flex flex-col bg-gray-900">
   <Topbar bind:currentView businessCount={businesses.length} />
   <div class="flex-1 overflow-hidden">
     {#if currentView === 'map'}
-      <Map bind:businesses bind:polygons bind:mapCenter bind:mapZoom bind:currentView bind:searchQuery bind:enabledCategories bind:showContactsOnly />
+      <Map bind:businesses bind:polygons bind:mapCenter bind:mapZoom bind:currentView bind:searchQuery bind:enabledCategories bind:showContactsOnly bind:heatmapEnabled bind:heatmapCategory />
     {:else if currentView === 'list'}
       {#key currentView}
         <ListView {businesses} bind:selectedBusinesses bind:currentView bind:searchQuery bind:enabledCategories bind:showContactsOnly />

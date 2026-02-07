@@ -16,12 +16,15 @@
     currentView = $bindable('map'),
     searchQuery = $bindable(''),
     enabledCategories = $bindable({}),
-    showContactsOnly = $bindable(false)
+    showContactsOnly = $bindable(false),
+    heatmapEnabled = $bindable(false),
+    heatmapCategory = $bindable('')
   } = $props()
   let mapContainer
   let map
   let draw
   let isEnriching = $state(false)
+  let mapLoaded = $state(false)
 
   // Filter businesses based on enabled categories and contact info
   let filteredBusinesses = $derived.by(() => {
@@ -46,12 +49,24 @@
     })
   })
 
+  // Filter businesses for heatmap (single category)
+  let heatmapBusinesses = $derived.by(() => {
+    if (!heatmapEnabled || !heatmapCategory) return []
+
+    return filteredBusinesses.filter(business => {
+      const category = BUSINESS_CATEGORIES.find(cat =>
+        cat.types.includes(business.type)
+      )
+      return category?.name === heatmapCategory
+    })
+  })
+
   // Update map when filtered businesses change
   $effect(() => {
     // Explicitly track enabledCategories to ensure reactivity
     const categories = enabledCategories
 
-    if (map && map.getSource('businesses')) {
+    if (mapLoaded && map && map.getSource('businesses')) {
       const geojson = {
         type: 'FeatureCollection',
         features: filteredBusinesses.map(business => ({
@@ -71,6 +86,66 @@
         }))
       }
       map.getSource('businesses').setData(geojson)
+    }
+  })
+
+  // Update heatmap data and visibility
+  $effect(() => {
+    if (!mapLoaded || !map) return
+
+    const heatmapSource = map.getSource('businesses-heatmap')
+    if (!heatmapSource) return
+
+    // Update heatmap data
+    if (heatmapEnabled && heatmapBusinesses.length > 0) {
+      const geojson = {
+        type: 'FeatureCollection',
+        features: heatmapBusinesses.map(business => ({
+          type: 'Feature',
+          geometry: {
+            type: 'Point',
+            coordinates: [business.lng, business.lat]
+          },
+          properties: {
+            name: business.name,
+            type: business.type
+          }
+        }))
+      }
+      heatmapSource.setData(geojson)
+
+      // Update heatmap color gradient based on selected category
+      const category = BUSINESS_CATEGORIES.find(c => c.name === heatmapCategory)
+      if (category) {
+        // Convert hex color to rgba for gradient
+        const color = category.color
+        const r = parseInt(color.slice(1, 3), 16)
+        const g = parseInt(color.slice(3, 5), 16)
+        const b = parseInt(color.slice(5, 7), 16)
+
+        map.setPaintProperty('businesses-heatmap-layer', 'heatmap-color', [
+          'interpolate', ['linear'], ['heatmap-density'],
+          0, 'rgba(0, 0, 0, 0)',
+          0.2, `rgba(${r}, ${g}, ${b}, 0.4)`,
+          0.4, `rgba(${r}, ${g}, ${b}, 0.6)`,
+          0.6, `rgba(${r}, ${g}, ${b}, 0.8)`,
+          1, `rgba(${r}, ${g}, ${b}, 1)`
+        ])
+      }
+
+      // Show heatmap, hide points
+      map.setLayoutProperty('businesses-heatmap-layer', 'visibility', 'visible')
+      map.setLayoutProperty('businesses-layer', 'visibility', 'none')
+      map.setLayoutProperty('phone-badge', 'visibility', 'none')
+      map.setLayoutProperty('website-badge', 'visibility', 'none')
+      map.setLayoutProperty('email-badge', 'visibility', 'none')
+    } else {
+      // Hide heatmap, show points
+      map.setLayoutProperty('businesses-heatmap-layer', 'visibility', 'none')
+      map.setLayoutProperty('businesses-layer', 'visibility', 'visible')
+      map.setLayoutProperty('phone-badge', 'visibility', 'visible')
+      map.setLayoutProperty('website-badge', 'visibility', 'visible')
+      map.setLayoutProperty('email-badge', 'visibility', 'visible')
     }
   })
 
@@ -491,33 +566,17 @@
         }
       })
 
-      // Restore businesses if any exist (using filtered list)
-      if (filteredBusinesses.length > 0) {
-        const geojson = {
-          type: 'FeatureCollection',
-          features: filteredBusinesses.map(business => {
-            const properties = {
-              name: business.name,
-              type: business.type,
-              address: business.address
-            }
-            // Only add contact properties if they have values
-            if (business.phone) properties.phone = business.phone
-            if (business.website) properties.website = business.website
-            if (business.email) properties.email = business.email
+      // Don't restore businesses here - let the $effect handle it
+      // This ensures proper filtering based on enabledCategories
 
-            return {
-              type: 'Feature',
-              geometry: {
-                type: 'Point',
-                coordinates: [business.lng, business.lat]
-              },
-              properties
-            }
-          })
+      // Add heatmap source for density visualization
+      map.addSource('businesses-heatmap', {
+        type: 'geojson',
+        data: {
+          type: 'FeatureCollection',
+          features: []
         }
-        map.getSource('businesses').setData(geojson)
-      }
+      })
 
       // Add circle layer for businesses
       map.addLayer({
@@ -608,6 +667,47 @@
         }
       })
 
+      // Add heatmap layer (initially hidden)
+      map.addLayer({
+        id: 'businesses-heatmap-layer',
+        type: 'heatmap',
+        source: 'businesses-heatmap',
+        paint: {
+          // Heatmap weight
+          'heatmap-weight': 1,
+
+          // Intensity by zoom level
+          'heatmap-intensity': [
+            'interpolate', ['linear'], ['zoom'],
+            0, 1,
+            15, 3
+          ],
+
+          // Radius of influence (in pixels)
+          'heatmap-radius': [
+            'interpolate', ['linear'], ['zoom'],
+            0, 2,
+            15, 30
+          ],
+
+          // Opacity
+          'heatmap-opacity': 0.8,
+
+          // Color gradient (will be updated dynamically)
+          'heatmap-color': [
+            'interpolate', ['linear'], ['heatmap-density'],
+            0, 'rgba(0, 0, 0, 0)',
+            0.2, 'rgba(255, 0, 0, 0.4)',
+            0.4, 'rgba(255, 0, 0, 0.6)',
+            0.6, 'rgba(255, 0, 0, 0.8)',
+            1, 'rgba(255, 0, 0, 1)'
+          ]
+        },
+        layout: {
+          'visibility': 'none'
+        }
+      })
+
       // Add popup on click - shared handler for all business layers
       const showPopup = (e) => {
         const coordinates = e.features[0].geometry.coordinates.slice()
@@ -660,6 +760,9 @@
           map.getCanvas().style.cursor = ''
         })
       })
+
+      // Mark map as fully loaded - this triggers the $effect to render businesses
+      mapLoaded = true
     })
 
     return () => {
@@ -699,7 +802,7 @@
 
   <!-- Category Filter -->
   <div class="absolute bottom-6 right-6" style="z-index: 1000; max-width: 280px;">
-    <CategoryFilter {businesses} bind:enabledCategories bind:showContactsOnly />
+    <CategoryFilter {businesses} bind:enabledCategories bind:showContactsOnly bind:heatmapEnabled bind:heatmapCategory />
   </div>
 
   <!-- Legend -->
