@@ -13,7 +13,7 @@ import json
 import asyncio
 from config import settings
 
-app = FastAPI(title="Pointr API")
+app = FastAPI(title=f"{settings.app_name} API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -128,7 +128,7 @@ class NominatimSearchResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to Pointr API"}
+    return {"message": f"Welcome to {settings.app_name} API"}
 
 @app.get("/api/health")
 async def health_check():

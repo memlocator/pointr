@@ -4,9 +4,17 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
 
+    # Application
+    app_name: str = "Pointr"
+    app_version: str = "1.0"
+
     # External APIs
     nominatim_api_url: str = "https://nominatim.openstreetmap.org"
-    user_agent: str = "Pointr/1.0"
+
+    @property
+    def user_agent(self) -> str:
+        """Dynamically generate user agent from app name and version"""
+        return f"{self.app_name}/{self.app_version}"
 
     # Service Configuration
     backend_host: str = "0.0.0.0"

@@ -1,4 +1,6 @@
 <script>
+  import { APP_NAME } from '../config.js'
+
   let { currentView = $bindable(), businessCount = 0 } = $props()
   let apiStatus = $state('checking...')
   let healthData = $state({
@@ -58,8 +60,8 @@
         <!-- P icon with location pin design -->
         <circle cx="12" cy="12" r="3" fill="#f97316"/>
         <path d="M12 2 C16.4 2 20 5.6 20 10 C20 14 12 22 12 22 C12 22 4 14 4 10 C4 5.6 7.6 2 12 2 Z" stroke="#f97316" stroke-width="2" fill="none"/>
-        <!-- Text "POINTR" -->
-        <text x="28" y="20" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="700" fill="white" letter-spacing="1">POINTR</text>
+        <!-- App name from config -->
+        <text x="28" y="20" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="700" fill="white" letter-spacing="1">{APP_NAME.toUpperCase()}</text>
       </svg>
     </div>
     <div class="flex items-center gap-0 bg-gray-800 border border-gray-700">

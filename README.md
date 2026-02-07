@@ -184,6 +184,43 @@ leadmaker/
 - Node.js (v20+ recommended)
 - uv (Python package manager)
 
+## Configuration & Branding
+
+The application can be easily rebranded by changing the app name in central configuration files. All UI elements, API titles, and user agents are generated from these settings.
+
+### Rebranding the Application
+
+To change the application name from "Pointr" to your own brand:
+
+1. **Frontend Configuration** - Update `frontend/src/config.js`:
+   ```javascript
+   export const APP_NAME = 'YourAppName'
+   export const APP_TITLE = 'YourAppName - Location Platform'
+   export const APP_VERSION = '1.0'
+   ```
+
+2. **Backend Configuration** - Update `backend/config.py`:
+   ```python
+   app_name: str = "YourAppName"
+   app_version: str = "1.0"
+   ```
+
+3. **Recon Service Configuration** - Update `recon/config.py`:
+   ```python
+   app_name: str = "YourAppName"
+   app_version: str = "1.0"
+   ```
+
+These changes will automatically update:
+- Browser tab title
+- Logo in top navigation bar
+- FastAPI documentation title
+- API welcome message
+- User-Agent headers for external API requests
+- Recon service User-Agent headers
+
+No rebuild is required for frontend changes (hot reload). Backend and recon services will need restart or rebuild for changes to take effect.
+
 ## Development
 
 ### With Docker (Recommended)

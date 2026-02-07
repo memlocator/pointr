@@ -202,6 +202,14 @@ class ReconServicer(recon_pb2_grpc.ReconServiceServicer):
             if asn_info:
                 domain_recon.asn_info.CopyFrom(asn_info)
 
+            # 7. DMARC Record
+            dmarc_record = self._get_dmarc_record(domain)
+            if dmarc_record:
+                domain_recon.dmarc.CopyFrom(dmarc_record)
+
+            # 8. Blocklist Status
+            domain_recon.blocklists.extend(self._get_blocklist_status(domain))
+
         except Exception as e:
             domain_recon.error = str(e)
             print(f"Error during recon for {domain}: {e}")
@@ -568,7 +576,7 @@ class ReconServicer(recon_pb2_grpc.ReconServiceServicer):
             response = httpx.get(
                 f"https://api.bgpview.io/asn/{asn_num}",
                 timeout=10.0,
-                headers={'User-Agent': 'Pointr-Recon/1.0'}
+                headers={'User-Agent': settings.user_agent}
             )
 
             if response.status_code == 200:
@@ -638,7 +646,7 @@ class ReconServicer(recon_pb2_grpc.ReconServiceServicer):
                 f"https://api.peeringdb.com/api/net",
                 params={'asn': asn_num},
                 timeout=5.0,
-                headers={'User-Agent': 'Pointr-Recon/1.0'}
+                headers={'User-Agent': settings.user_agent}
             )
 
             if response.status_code == 200:
@@ -665,6 +673,99 @@ class ReconServicer(recon_pb2_grpc.ReconServiceServicer):
             print(f"Error getting PeeringDB data for {asn}: {e}")
 
         return {'policy': '', 'type': '', 'facilities': []}
+
+    def _get_dmarc_record(self, domain):
+        """Get DMARC record for domain"""
+        try:
+            dmarc_domain = f"_dmarc.{domain}"
+            answers = dns.resolver.resolve(dmarc_domain, 'TXT')
+
+            for rdata in answers:
+                record = str(rdata).strip('"')
+                if record.startswith('v=DMARC1'):
+                    # Parse DMARC record
+                    dmarc_data = {'present': True, 'raw_record': record}
+
+                    # Extract policy
+                    policy_match = re.search(r'p=(\w+)', record)
+                    if policy_match:
+                        dmarc_data['policy'] = policy_match.group(1)
+
+                    # Extract subdomain policy
+                    sp_match = re.search(r'sp=(\w+)', record)
+                    if sp_match:
+                        dmarc_data['subdomain_policy'] = sp_match.group(1)
+
+                    # Extract percentage
+                    pct_match = re.search(r'pct=(\d+)', record)
+                    if pct_match:
+                        dmarc_data['percentage'] = int(pct_match.group(1))
+                    else:
+                        dmarc_data['percentage'] = 100  # Default
+
+                    # Extract reporting URIs
+                    rua_match = re.search(r'rua=([^;]+)', record)
+                    if rua_match:
+                        dmarc_data['rua'] = [uri.strip() for uri in rua_match.group(1).split(',')]
+
+                    ruf_match = re.search(r'ruf=([^;]+)', record)
+                    if ruf_match:
+                        dmarc_data['ruf'] = [uri.strip() for uri in ruf_match.group(1).split(',')]
+
+                    return recon_pb2.DMARCRecord(**dmarc_data)
+
+            # No DMARC record found
+            return recon_pb2.DMARCRecord(present=False, raw_record='', policy='none')
+
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+            return recon_pb2.DMARCRecord(present=False, raw_record='', policy='none')
+        except Exception as e:
+            print(f"Error getting DMARC record for {domain}: {e}")
+            return None
+
+    def _get_blocklist_status(self, domain):
+        """Check domain against DNS blocklists"""
+        blocklists = []
+
+        # Major DNS blocklists (free, public)
+        rbls = [
+            ('zen.spamhaus.org', 'Spamhaus ZEN'),
+            ('dbl.spamhaus.org', 'Spamhaus DBL'),
+            ('multi.uribl.com', 'URIBL Multi'),
+            ('multi.surbl.org', 'SURBL Multi'),
+        ]
+
+        for rbl_domain, rbl_name in rbls:
+            try:
+                # Query: domain.rbl_domain
+                query = f"{domain}.{rbl_domain}"
+                answers = dns.resolver.resolve(query, 'A')
+
+                # If we get an answer, domain is listed
+                listed_ips = [str(rdata) for rdata in answers]
+                details = f"Listed with IPs: {', '.join(listed_ips)}"
+
+                blocklists.append(recon_pb2.BlocklistStatus(
+                    blocklist=rbl_name,
+                    listed=True,
+                    details=details
+                ))
+            except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+                # Not listed (this is good!)
+                blocklists.append(recon_pb2.BlocklistStatus(
+                    blocklist=rbl_name,
+                    listed=False,
+                    details='Not listed'
+                ))
+            except Exception as e:
+                # Error checking (network issue, etc.)
+                blocklists.append(recon_pb2.BlocklistStatus(
+                    blocklist=rbl_name,
+                    listed=False,
+                    details=f'Error checking: {str(e)}'
+                ))
+
+        return blocklists
 
 
 def serve():
