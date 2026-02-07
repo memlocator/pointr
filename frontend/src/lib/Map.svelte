@@ -15,26 +15,42 @@
     mapZoom = $bindable(13),
     currentView = $bindable('map'),
     searchQuery = $bindable(''),
-    enabledCategories = $bindable({})
+    enabledCategories = $bindable({}),
+    showContactsOnly = $bindable(false)
   } = $props()
   let mapContainer
   let map
   let draw
   let isEnriching = $state(false)
 
-  // Filter businesses based on enabled categories
+  // Filter businesses based on enabled categories and contact info
   let filteredBusinesses = $derived.by(() => {
+    // Force tracking of enabledCategories object
+    const enabled = enabledCategories
     return businesses.filter(business => {
+      // Filter by category
       const category = BUSINESS_CATEGORIES.find(cat =>
         cat.types.includes(business.type)
       )
       const categoryName = category ? category.name : 'Other'
-      return enabledCategories[categoryName]
+      if (!enabled[categoryName]) {
+        return false
+      }
+
+      // Filter by contact info if enabled
+      if (showContactsOnly) {
+        return business.phone || business.email || business.website
+      }
+
+      return true
     })
   })
 
   // Update map when filtered businesses change
   $effect(() => {
+    // Explicitly track enabledCategories to ensure reactivity
+    const categories = enabledCategories
+
     if (map && map.getSource('businesses')) {
       const geojson = {
         type: 'FeatureCollection',
@@ -125,6 +141,24 @@
   let circleCenter = null
   let circleClickHandler = null
   let circleMoveHandler = null
+
+  // Calculate distance between two points using Haversine formula (returns km)
+  function haversineDistance(point1, point2) {
+    const R = 6371 // Earth's radius in km
+    const [lon1, lat1] = point1
+    const [lon2, lat2] = point2
+
+    const dLat = (lat2 - lat1) * Math.PI / 180
+    const dLon = (lon2 - lon1) * Math.PI / 180
+
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2)
+
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+
+    return R * c
+  }
   let previewCircleSource = null
 
   function startPolygonDrawing() {
@@ -175,9 +209,7 @@
         // Start showing preview on mouse move
         circleMoveHandler = (moveEvent) => {
           const currentPoint = [moveEvent.lngLat.lng, moveEvent.lngLat.lat]
-          const dx = currentPoint[0] - circleCenter[0]
-          const dy = currentPoint[1] - circleCenter[1]
-          const radius = Math.sqrt(dx * dx + dy * dy) * 111 // rough conversion to km
+          const radius = haversineDistance(circleCenter, currentPoint)
 
           const options = { steps: 64, units: 'kilometers' }
           const circlePolygon = circle(circleCenter, Math.max(0.1, radius), options)
@@ -188,11 +220,9 @@
       } else {
         // Second click: finalize circle
         const currentPoint = [e.lngLat.lng, e.lngLat.lat]
-        const dx = currentPoint[0] - circleCenter[0]
-        const dy = currentPoint[1] - circleCenter[1]
-        const radius = Math.sqrt(dx * dx + dy * dy) * 111 // rough conversion to km
+        const radius = haversineDistance(circleCenter, currentPoint)
 
-        if (radius > 0.05) { // minimum radius
+        if (radius > 0.05) { // minimum radius 50 meters
           const options = { steps: 64, units: 'kilometers' }
           const circlePolygon = circle(circleCenter, radius, options)
           draw.add(circlePolygon)
@@ -461,11 +491,11 @@
         }
       })
 
-      // Restore businesses if any exist
-      if (businesses.length > 0) {
+      // Restore businesses if any exist (using filtered list)
+      if (filteredBusinesses.length > 0) {
         const geojson = {
           type: 'FeatureCollection',
-          features: businesses.map(business => {
+          features: filteredBusinesses.map(business => {
             const properties = {
               name: business.name,
               type: business.type,
@@ -669,7 +699,7 @@
 
   <!-- Category Filter -->
   <div class="absolute bottom-6 right-6" style="z-index: 1000; max-width: 280px;">
-    <CategoryFilter {businesses} bind:enabledCategories />
+    <CategoryFilter {businesses} bind:enabledCategories bind:showContactsOnly />
   </div>
 
   <!-- Legend -->

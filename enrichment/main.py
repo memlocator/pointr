@@ -2,7 +2,7 @@ from concurrent import futures
 import grpc
 import enrichment_pb2
 import enrichment_pb2_grpc
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, Point, box
 import math
 import httpx
 from config import settings
@@ -70,14 +70,45 @@ class EnrichmentServicer(enrichment_pb2_grpc.EnrichmentServiceServicer):
         else:
             return "large"
 
-    def _get_businesses_from_overpass(self, coords):
-        """Query Overpass API for businesses in polygon"""
-        # Calculate bounding box from polygon (faster than polygon queries)
-        lats = [lat for lng, lat in coords]
-        lngs = [lng for lng, lat in coords]
-        bbox = f"{min(lats)},{min(lngs)},{max(lats)},{max(lngs)}"  # south,west,north,east
+    def _detect_circle(self, coords):
+        """Detect if polygon is actually a circle and return (center_lat, center_lng, radius_m)"""
+        if len(coords) < 10:
+            return None  # Not enough points to be a circle
 
-        # Create polygon for filtering results to only include businesses inside
+        # Calculate centroid
+        polygon = Polygon(coords)
+        center = polygon.centroid
+        center_lat, center_lng = center.y, center.x
+
+        # Calculate distances from center to all points
+        distances = []
+        for lng, lat in coords[:-1]:  # Exclude last point if it duplicates first
+            # Haversine distance in meters
+            dlat = math.radians(lat - center_lat)
+            dlng = math.radians(lng - center_lng)
+            a = math.sin(dlat/2)**2 + math.cos(math.radians(center_lat)) * math.cos(math.radians(lat)) * math.sin(dlng/2)**2
+            c = 2 * math.asin(math.sqrt(a))
+            distance = 6371000 * c  # Earth radius in meters
+            distances.append(distance)
+
+        if not distances:
+            return None
+
+        # Check if all distances are similar (within 5% tolerance)
+        avg_distance = sum(distances) / len(distances)
+        max_deviation = max(abs(d - avg_distance) for d in distances)
+
+        if max_deviation / avg_distance < 0.05:  # 5% tolerance
+            return (center_lat, center_lng, int(avg_distance))
+
+        return None
+
+    def _get_businesses_from_overpass(self, coords):
+        """Query Overpass API for businesses in polygon or circle"""
+        # Check if this is actually a circle
+        circle_params = self._detect_circle(coords)
+
+        # Create polygon for filtering results
         from shapely.geometry import Point
         polygon = Polygon(coords)
 
@@ -109,30 +140,66 @@ class EnrichmentServicer(enrichment_pb2_grpc.EnrichmentServiceServicer):
 
         government_filter = "|".join(government_types)
 
-        print(f"Querying Overpass with bbox: {bbox}")
+        # Build query based on shape type
+        if circle_params:
+            center_lat, center_lng, radius_m = circle_params
+            print(f"Querying Overpass with circle: center=({center_lat:.6f}, {center_lng:.6f}), radius={radius_m}m")
 
-        # Overpass QL query - optimized with essential entity types
-        query = f"""
-        [out:json][timeout:60][bbox:{bbox}];
-        (
-          nwr["office"="government"];
-          nwr["government"];
-          nwr["building"~"^(government|public|palace|castle)$"];
-          nwr["historic"~"^(castle|palace|monument|memorial|fort)$"];
-          nwr["tourism"~"^(attraction|museum)$"];
-          nwr["amenity"~"^(restaurant|cafe|bank|hospital|townhall|courthouse|police|embassy|post_office|bus_station|ferry_terminal)$"];
-          nwr["shop"];
-          nwr["office"~"^(telecommunication|energy|it|company|transport|railway|airline|logistics|courier|delivery|water_utility)$"];
-          nwr["aeroway"~"^(aerodrome|terminal|hangar)$"];
-          nwr["railway"~"^(station|halt)$"];
-          nwr["public_transport"="station"];
-          nwr["man_made"~"^(mast|communications_tower|water_tower|water_works|wastewater_plant)$"];
-          nwr["power"~"^(plant|substation|generator)$"];
-          nwr["landuse"~"^(port|industrial)$"];
-          nwr["amenity"="post_depot"];
-        );
-        out center;
-        """
+            # Overpass QL query using 'around' for circular queries
+            # Note: 'around' syntax: (around:radius_in_meters,lat,lon)
+            query = f"""
+            [out:json][timeout:60];
+            (
+              nwr["office"="government"](around:{radius_m},{center_lat},{center_lng});
+              nwr["government"](around:{radius_m},{center_lat},{center_lng});
+              nwr["building"~"^(government|public|palace|castle)$"](around:{radius_m},{center_lat},{center_lng});
+              nwr["historic"~"^(castle|palace|monument|memorial|fort)$"](around:{radius_m},{center_lat},{center_lng});
+              nwr["tourism"~"^(attraction|museum)$"](around:{radius_m},{center_lat},{center_lng});
+              nwr["amenity"~"^(restaurant|cafe|bank|hospital|townhall|courthouse|police|embassy|post_office|bus_station|ferry_terminal)$"](around:{radius_m},{center_lat},{center_lng});
+              nwr["shop"](around:{radius_m},{center_lat},{center_lng});
+              nwr["office"~"^(telecommunication|energy|it|company|transport|railway|airline|logistics|courier|delivery|water_utility)$"](around:{radius_m},{center_lat},{center_lng});
+              nwr["aeroway"~"^(aerodrome|terminal|hangar)$"](around:{radius_m},{center_lat},{center_lng});
+              nwr["railway"~"^(station|halt)$"](around:{radius_m},{center_lat},{center_lng});
+              nwr["public_transport"="station"](around:{radius_m},{center_lat},{center_lng});
+              nwr["man_made"~"^(mast|communications_tower|water_tower|water_works|wastewater_plant)$"](around:{radius_m},{center_lat},{center_lng});
+              nwr["power"~"^(plant|substation|generator)$"](around:{radius_m},{center_lat},{center_lng});
+              nwr["landuse"~"^(port|industrial)$"](around:{radius_m},{center_lat},{center_lng});
+              nwr["amenity"="post_depot"](around:{radius_m},{center_lat},{center_lng});
+            );
+            out bb center;
+            """
+        else:
+            # Calculate bounding box from polygon (for non-circular shapes)
+            lats = [lat for lng, lat in coords]
+            lngs = [lng for lng, lat in coords]
+            bbox = f"{min(lats)},{min(lngs)},{max(lats)},{max(lngs)}"  # south,west,north,east
+
+            print(f"Querying Overpass with bbox: {bbox}")
+
+            # Overpass QL query - optimized with essential entity types
+            # Using 'out bb center' to get both bounding boxes and center coordinates
+            # Note: order matters! 'out bb center' works, 'out center bb' doesn't return centers for relations
+            query = f"""
+            [out:json][timeout:60][bbox:{bbox}];
+            (
+              nwr["office"="government"];
+              nwr["government"];
+              nwr["building"~"^(government|public|palace|castle)$"];
+              nwr["historic"~"^(castle|palace|monument|memorial|fort)$"];
+              nwr["tourism"~"^(attraction|museum)$"];
+              nwr["amenity"~"^(restaurant|cafe|bank|hospital|townhall|courthouse|police|embassy|post_office|bus_station|ferry_terminal)$"];
+              nwr["shop"];
+              nwr["office"~"^(telecommunication|energy|it|company|transport|railway|airline|logistics|courier|delivery|water_utility)$"];
+              nwr["aeroway"~"^(aerodrome|terminal|hangar)$"];
+              nwr["railway"~"^(station|halt)$"];
+              nwr["public_transport"="station"];
+              nwr["man_made"~"^(mast|communications_tower|water_tower|water_works|wastewater_plant)$"];
+              nwr["power"~"^(plant|substation|generator)$"];
+              nwr["landuse"~"^(port|industrial)$"];
+              nwr["amenity"="post_depot"];
+            );
+            out bb center;
+            """
 
         try:
             response = httpx.post(
@@ -146,6 +213,13 @@ class EnrichmentServicer(enrichment_pb2_grpc.EnrichmentServiceServicer):
             businesses = []
             elements = data.get('elements', [])
             print(f"Overpass returned {len(elements)} elements")
+
+            # Debug: log any aeroway=aerodrome entities
+            aerodromes = [e for e in elements if e.get('tags', {}).get('aeroway') == 'aerodrome']
+            if aerodromes:
+                print(f"  Found {len(aerodromes)} aerodrome(s):")
+                for a in aerodromes:
+                    print(f"    - {a.get('tags', {}).get('name', 'Unnamed')} (id={a.get('id')}, type={a.get('type')})")
 
             for element in elements:
                 tags = element.get('tags', {})
@@ -202,10 +276,30 @@ class EnrichmentServicer(enrichment_pb2_grpc.EnrichmentServiceServicer):
                     print(f"  WARNING: No coordinates found for {name}, skipping")
                     continue
 
-                # Filter: only include businesses actually inside the polygon
-                point = Point(lng, lat)
-                if not polygon.contains(point):
-                    continue
+                # Filter: check if entity intersects with polygon
+                # For entities with bounding box (large areas like airports), check intersection
+                # For point entities, check if point is inside polygon
+                if 'bounds' in element:
+                    # Entity has bounding box - check if bbox intersects with polygon
+                    bounds = element['bounds']
+                    entity_bbox = box(
+                        bounds['minlon'], bounds['minlat'],
+                        bounds['maxlon'], bounds['maxlat']
+                    )
+                    if not polygon.intersects(entity_bbox):
+                        if tags.get('aeroway') == 'aerodrome':
+                            print(f"  DEBUG: Aerodrome {name} filtered out - bbox doesn't intersect")
+                            print(f"    Entity bbox: {bounds}")
+                            print(f"    Polygon bbox: {polygon.bounds}")
+                        continue
+                else:
+                    # Point entity - check if center point is inside polygon
+                    point = Point(lng, lat)
+                    if not polygon.contains(point):
+                        if tags.get('aeroway') == 'aerodrome':
+                            print(f"  DEBUG: Aerodrome {name} filtered out - center not in polygon")
+                            print(f"    Center: ({lng}, {lat})")
+                        continue
 
                 businesses.append(enrichment_pb2.Business(
                     name=name,
@@ -218,8 +312,10 @@ class EnrichmentServicer(enrichment_pb2_grpc.EnrichmentServiceServicer):
                     email=email
                 ))
 
-                # Log interesting entities (palaces, castles, historic sites)
-                if any(tag in tags for tag in ['historic', 'tourism']) or tags.get('building') in ['palace', 'castle']:
+                # Log interesting entities (palaces, castles, historic sites, airports)
+                if tags.get('aeroway') == 'aerodrome':
+                    print(f"  ✓ Added aerodrome: {name} (center: {lat}, {lng})")
+                elif any(tag in tags for tag in ['historic', 'tourism']) or tags.get('building') in ['palace', 'castle']:
                     print(f"  → {name} (type={business_type}, building={tags.get('building', 'N/A')}, historic={tags.get('historic', 'N/A')}, tourism={tags.get('tourism', 'N/A')})")
 
             return businesses, None  # Success, no error

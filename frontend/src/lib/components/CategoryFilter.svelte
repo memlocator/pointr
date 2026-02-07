@@ -3,7 +3,9 @@
 
   let {
     businesses = [],
-    enabledCategories = $bindable({})
+    enabledCategories = $bindable({}),
+    showContactsOnly = $bindable(false),
+    hideContactToggle = false
   } = $props()
 
   let businessCounts = $derived.by(() => {
@@ -29,19 +31,26 @@
   let isExpanded = $state(false)
 
   function toggleCategory(categoryName) {
-    enabledCategories[categoryName] = !enabledCategories[categoryName]
+    enabledCategories = {
+      ...enabledCategories,
+      [categoryName]: !enabledCategories[categoryName]
+    }
   }
 
   function selectAll() {
+    const updated = { ...enabledCategories }
     BUSINESS_CATEGORIES.forEach(cat => {
-      enabledCategories[cat.name] = true
+      updated[cat.name] = true
     })
+    enabledCategories = updated
   }
 
   function deselectAll() {
+    const updated = { ...enabledCategories }
     BUSINESS_CATEGORIES.forEach(cat => {
-      enabledCategories[cat.name] = false
+      updated[cat.name] = false
     })
+    enabledCategories = updated
   }
 
   let allSelected = $derived(
@@ -71,7 +80,7 @@
       height="12"
       viewBox="0 0 12 12"
       fill="none"
-      class={`text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+      class={`text-gray-400 transition-transform ${isExpanded ? '' : 'rotate-180'}`}
     >
       <path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
@@ -96,6 +105,29 @@
           None
         </button>
       </div>
+
+      <!-- Contact Filter Toggle -->
+      {#if !hideContactToggle}
+        <div class="px-3 py-2 border-b border-gray-700">
+          <button
+            onclick={() => showContactsOnly = !showContactsOnly}
+            class="w-full px-2 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors flex items-center gap-2"
+          >
+            <div class={`w-4 h-4 border-2 flex items-center justify-center ${
+              showContactsOnly
+                ? 'bg-gray-700 border-gray-500'
+                : 'border-gray-600'
+            }`}>
+              {#if showContactsOnly}
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <path d="M2 5 L4 7 L8 3" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              {/if}
+            </div>
+            <span>Contacts Only</span>
+          </button>
+        </div>
+      {/if}
 
       <!-- Category List -->
       <div class="max-h-80 overflow-y-auto">

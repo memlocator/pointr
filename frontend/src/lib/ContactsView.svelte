@@ -7,23 +7,24 @@
     businesses = [],
     selectedBusinesses = $bindable([]),
     currentView = $bindable('contacts'),
-    enabledCategories = $bindable({})
+    enabledCategories = $bindable({}),
+    showContactsOnly = $bindable(false)
   } = $props()
 
   // Filter by both category and contact info
   let contactBusinesses = $derived.by(() => {
     return businesses.filter(business => {
-      // Must have contact info
-      if (!business.phone && !business.email && !business.website) {
-        return false
-      }
-
-      // Must be in enabled category
+      // Filter by category
       const category = BUSINESS_CATEGORIES.find(cat =>
         cat.types.includes(business.type)
       )
       const categoryName = category ? category.name : 'Other'
-      return enabledCategories[categoryName]
+      if (!enabledCategories[categoryName]) {
+        return false
+      }
+
+      // In contacts view, always show only businesses with contact info
+      return business.phone || business.email || business.website
     })
   })
 
@@ -80,7 +81,7 @@
   {/if}
 
   <!-- Category Filter -->
-  <CategoryFilter {businesses} bind:enabledCategories />
+  <CategoryFilter {businesses} bind:enabledCategories bind:showContactsOnly hideContactToggle={true} />
 
   <div class="bg-gray-800 border-2 border-gray-700 shadow-lg flex-1 overflow-hidden">
     <DataTable

@@ -18,6 +18,7 @@
 
   // Category filtering - initialize all as enabled
   let enabledCategories = $state(loadFromStorage('enabledCategories', {}))
+  let showContactsOnly = $state(loadFromStorage('showContactsOnly', false))
 
   // Ensure all categories are initialized
   BUSINESS_CATEGORIES.forEach(cat => {
@@ -46,20 +47,24 @@
   $effect(() => {
     saveToStorage('enabledCategories', enabledCategories)
   })
+
+  $effect(() => {
+    saveToStorage('showContactsOnly', showContactsOnly)
+  })
 </script>
 
 <div class="h-screen w-screen flex flex-col bg-gray-900">
   <Topbar bind:currentView businessCount={businesses.length} />
   <div class="flex-1 overflow-hidden">
     {#if currentView === 'map'}
-      <Map bind:businesses bind:polygons bind:mapCenter bind:mapZoom bind:currentView bind:searchQuery bind:enabledCategories />
+      <Map bind:businesses bind:polygons bind:mapCenter bind:mapZoom bind:currentView bind:searchQuery bind:enabledCategories bind:showContactsOnly />
     {:else if currentView === 'list'}
       {#key currentView}
-        <ListView {businesses} bind:selectedBusinesses bind:currentView bind:searchQuery bind:enabledCategories />
+        <ListView {businesses} bind:selectedBusinesses bind:currentView bind:searchQuery bind:enabledCategories bind:showContactsOnly />
       {/key}
     {:else if currentView === 'contacts'}
       {#key currentView}
-        <ContactsView {businesses} bind:selectedBusinesses bind:currentView bind:enabledCategories />
+        <ContactsView {businesses} bind:selectedBusinesses bind:currentView bind:enabledCategories bind:showContactsOnly />
       {/key}
     {:else if currentView === 'recon'}
       <ReconView bind:selectedBusinesses />
