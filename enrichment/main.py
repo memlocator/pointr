@@ -120,8 +120,16 @@ class EnrichmentServicer(enrichment_pb2_grpc.EnrichmentServiceServicer):
           nwr["building"~"^(government|public|palace|castle)$"];
           nwr["historic"~"^(castle|palace|monument|memorial|fort)$"];
           nwr["tourism"~"^(attraction|museum)$"];
-          nwr["amenity"~"^(restaurant|cafe|bank|hospital|townhall|courthouse|police|embassy)$"];
+          nwr["amenity"~"^(restaurant|cafe|bank|hospital|townhall|courthouse|police|embassy|post_office|bus_station|ferry_terminal)$"];
           nwr["shop"];
+          nwr["office"~"^(telecommunication|energy|it|company|transport|railway|airline|logistics|courier|delivery|water_utility)$"];
+          nwr["aeroway"~"^(aerodrome|terminal|hangar)$"];
+          nwr["railway"~"^(station|halt)$"];
+          nwr["public_transport"="station"];
+          nwr["man_made"~"^(mast|communications_tower|water_tower|water_works|wastewater_plant)$"];
+          nwr["power"~"^(plant|substation|generator)$"];
+          nwr["landuse"~"^(port|industrial)$"];
+          nwr["amenity"="post_depot"];
         );
         out center;
         """
@@ -144,19 +152,25 @@ class EnrichmentServicer(enrichment_pb2_grpc.EnrichmentServiceServicer):
                 name = tags.get('name', 'Unnamed')
 
                 # Prioritize specific tags for entity type classification
-                # Priority: historic > tourism > military > aeroway > shop > amenity > government >
-                # office > public_transport > railway > power > man_made > leisure > building
+                # Priority: historic > tourism > military > aeroway > landuse > shop > amenity >
+                # government > office > public_transport > railway > power > man_made > leisure > building
                 historic_val = tags.get('historic')
                 if historic_val:
                     # Add palace subtype if available
                     castle_type = tags.get('castle_type')
                     business_type = f"{historic_val}:{castle_type}" if castle_type else historic_val
                 else:
+                    # Check landuse for infrastructure types (port, industrial, military)
+                    landuse_val = tags.get('landuse')
+                    landuse_type = None
+                    if landuse_val in ['port', 'industrial', 'military']:
+                        landuse_type = landuse_val
+
                     business_type = (
                         tags.get('tourism') or
                         tags.get('military') or
-                        (f"landuse:{tags.get('landuse')}" if tags.get('landuse') == 'military' else None) or
                         tags.get('aeroway') or
+                        landuse_type or
                         tags.get('shop') or
                         tags.get('amenity') or
                         tags.get('government') or

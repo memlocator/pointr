@@ -58,7 +58,29 @@ export const BUSINESS_CATEGORIES = [
     name: 'Transportation',
     color: '#ec4899', // Pink
     types: [
-      'aerodrome', 'terminal', 'heliport', 'station', 'bus_station'
+      'aerodrome', 'terminal', 'heliport', 'station', 'bus_station',
+      'halt', 'ferry_terminal', 'hangar'
+    ]
+  },
+  {
+    name: 'Infrastructure',
+    color: '#8b5cf6', // Violet
+    types: [
+      // Telecom
+      'telecommunication', 'mast', 'communications_tower',
+      // Utilities
+      'energy', 'water_utility', 'plant', 'substation', 'generator',
+      'water_tower', 'water_works', 'wastewater_plant',
+      // Transport companies
+      'transport', 'railway', 'airline', 'logistics',
+      // Postal
+      'post_depot', 'courier', 'delivery',
+      // Ports
+      'port',
+      // Industrial
+      'industrial',
+      // IT
+      'it', 'company'
     ]
   },
   {
