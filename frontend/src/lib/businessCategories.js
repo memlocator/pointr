@@ -58,14 +58,15 @@ export const BUSINESS_CATEGORIES = [
     name: 'Transportation',
     color: '#ec4899', // Pink
     types: [
-      'aerodrome', 'terminal', 'heliport', 'station', 'bus_station',
-      'halt', 'ferry_terminal', 'hangar'
+      'station', 'bus_station', 'halt', 'ferry_terminal'
     ]
   },
   {
     name: 'Infrastructure',
     color: '#8b5cf6', // Violet
     types: [
+      // Aviation
+      'aerodrome', 'terminal', 'heliport', 'hangar',
       // Telecom
       'telecommunication', 'mast', 'communications_tower',
       // Utilities
