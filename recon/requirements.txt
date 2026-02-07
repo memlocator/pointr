@@ -4,3 +4,4 @@ httpx==0.26.0
 dnspython==2.5.0
 python-whois==0.9.3
 pydantic-settings>=2.0.0
+watchdog>=3.0.0

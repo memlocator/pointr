@@ -21,9 +21,10 @@ RUN uv run python -m grpc_tools.protoc \
 
 # Copy application code
 COPY enrichment/main.py ./
+COPY enrichment/dev_server.py ./
 
 # Expose gRPC port
 EXPOSE 50051
 
-# Run the gRPC server
-CMD ["uv", "run", "python", "main.py"]
+# Run the gRPC server with hot reload
+CMD ["uv", "run", "python", "dev_server.py"]

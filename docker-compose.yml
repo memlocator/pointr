@@ -24,7 +24,7 @@ services:
       # Mount source code for hot reloading
       - ./recon/main.py:/app/main.py
       - ./recon/config.py:/app/config.py
-      - ./recon/requirements.txt:/app/requirements.txt
+      - ./recon/pyproject.toml:/app/pyproject.toml
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
