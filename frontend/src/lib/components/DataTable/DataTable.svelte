@@ -11,6 +11,7 @@
     filterByContactInfo,
     validateColumns
   } from './dataTableUtils.js'
+  import { exportToCSV, exportToJSON } from './exportUtils.js'
 
   // Props
   let {
@@ -46,6 +47,7 @@
   let sortConfig = $state({ column: null, direction: null })
   let currentPage = $state(1)
   let itemsPerPage = $state(10)
+  let showExportMenu = $state(false)
 
   // Sync itemsPerPage with pageSize prop
   $effect(() => {
@@ -148,20 +150,84 @@
   function isRowSelected(row) {
     return selectedRows.some(r => r === row)
   }
+
+  // Export functions
+  function handleExportCSV() {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5)
+    exportToCSV(sortedData, columns, `export-${timestamp}.csv`)
+    showExportMenu = false
+  }
+
+  function handleExportJSON() {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5)
+    exportToJSON(sortedData, columns, `export-${timestamp}.json`)
+    showExportMenu = false
+  }
+
+  // Close export menu when clicking outside
+  $effect(() => {
+    if (!showExportMenu) return
+
+    const handleClickOutside = (e) => {
+      if (!e.target.closest('.export-container')) {
+        showExportMenu = false
+      }
+    }
+
+    document.addEventListener('click', handleClickOutside)
+    return () => document.removeEventListener('click', handleClickOutside)
+  })
 </script>
 
 <div class="flex flex-col h-full bg-gray-900">
   <!-- Filters bar -->
   {#if searchable || categoryFilter?.enabled || contactFilter?.enabled}
     <div class="border-b border-gray-700 bg-gray-800">
-      {#if searchable}
-        <div class="p-4">
-          <DataTableSearch bind:searchTerm />
+      <div class="flex items-center justify-between gap-4 p-4">
+        {#if searchable}
+          <div class="flex-1">
+            <DataTableSearch bind:searchTerm />
+          </div>
+        {/if}
+
+        <!-- Export button -->
+        <div class="relative export-container">
+          <button
+            onclick={() => showExportMenu = !showExportMenu}
+            class="px-4 py-2 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors flex items-center gap-2 whitespace-nowrap"
+            disabled={sortedData.length === 0}
+            class:opacity-50={sortedData.length === 0}
+            class:cursor-not-allowed={sortedData.length === 0}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            EXPORT ({sortedData.length})
+          </button>
+
+          {#if showExportMenu}
+            <div class="absolute right-0 mt-1 w-40 bg-gray-800 border border-gray-700 shadow-lg z-20">
+              <button
+                onclick={handleExportCSV}
+                class="w-full px-4 py-2 text-xs text-left text-gray-300 hover:bg-gray-700 transition-colors"
+              >
+                Export as CSV
+              </button>
+              <button
+                onclick={handleExportJSON}
+                class="w-full px-4 py-2 text-xs text-left text-gray-300 hover:bg-gray-700 transition-colors border-t border-gray-700"
+              >
+                Export as JSON
+              </button>
+            </div>
+          {/if}
         </div>
-      {/if}
+      </div>
 
       {#if categoryFilter?.enabled || contactFilter?.enabled}
-        <div class="p-4 pt-0">
+        <div class="px-4 pb-4">
           <DataTableFilters
             {categoryFilter}
             {contactFilter}
