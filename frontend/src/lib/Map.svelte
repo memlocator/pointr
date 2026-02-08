@@ -4,6 +4,7 @@
   import MapboxDraw from '@mapbox/mapbox-gl-draw'
   import circle from '@turf/circle'
   import { BUSINESS_CATEGORIES, generateColorExpression, generateIconExpression } from './businessCategories.js'
+  import { getSourceColor } from './sourceColors.js'
   import LocationSearchBar from './components/LocationSearchBar.svelte'
   import DrawingToolbar from './components/DrawingToolbar.svelte'
   import CategoryFilter from './components/CategoryFilter.svelte'
@@ -24,7 +25,8 @@
     routingEnabled = $bindable(false),
     stops = $bindable([]),
     routeData = $bindable(null),
-    pickingStop = $bindable(null)
+    pickingStop = $bindable(null),
+    enabledSources = $bindable(null)
   } = $props()
   let mapContainer
   let map
@@ -40,6 +42,7 @@
 
   // Custom POI form (right-click)
   let poiForm = $state(null) // { lat, lng, x, y } or null
+  let poiSavedToast = $state(false)
   let poiName = $state('')
   let poiCategory = $state(BUSINESS_CATEGORIES[0].name)
   let poiDescription = $state('')
@@ -58,10 +61,14 @@
   let filteredBusinesses = $derived.by(() => {
     // Force tracking of enabledCategories object
     const enabled = enabledCategories
+    const sources = enabledSources
     return businesses.filter(business => {
-      // Filter by category
+      // Filter by source toggle
+      if (sources && sources.length > 0 && !sources.includes(business.source || 'osm')) return false
+
+      // Filter by category (also match custom POIs where type === category name)
       const category = BUSINESS_CATEGORIES.find(cat =>
-        cat.types.includes(business.type)
+        cat.types.includes(business.type) || cat.name === business.type
       )
       const categoryName = category ? category.name : 'Other'
       if (!enabled[categoryName]) {
@@ -83,41 +90,46 @@
 
     return filteredBusinesses.filter(business => {
       const category = BUSINESS_CATEGORIES.find(cat =>
-        cat.types.includes(business.type)
+        cat.types.includes(business.type) || cat.name === business.type
       )
       return category?.name === heatmapCategory
     })
   })
 
+  function syncMapSource() {
+    if (!mapLoaded || !map || !map.getSource('businesses')) return
+    const geojson = {
+      type: 'FeatureCollection',
+      features: filteredBusinesses.map(business => ({
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: [business.lng, business.lat]
+        },
+        properties: {
+          name: business.name,
+          type: business.type,
+          address: business.address,
+          phone: business.phone,
+          website: business.website,
+          email: business.email,
+          source: business.source || 'osm',
+          source_color: getSourceColor(business.source || 'osm'),
+          id: business.id || '',
+          description: business.description || ''
+        }
+      }))
+    }
+    map.getSource('businesses').setData(geojson)
+  }
+
   // Update map when filtered businesses change
   $effect(() => {
-    // Explicitly track enabledCategories to ensure reactivity
+    // Explicitly track state to ensure reactivity with $bindable props
     const categories = enabledCategories
+    const _b = businesses
 
-    if (mapLoaded && map && map.getSource('businesses')) {
-      const geojson = {
-        type: 'FeatureCollection',
-        features: filteredBusinesses.map(business => ({
-          type: 'Feature',
-          geometry: {
-            type: 'Point',
-            coordinates: [business.lng, business.lat]
-          },
-          properties: {
-            name: business.name,
-            type: business.type,
-            address: business.address,
-            phone: business.phone,
-            website: business.website,
-            email: business.email,
-            source: business.source || 'osm',
-            id: business.id || '',
-            description: business.description || ''
-          }
-        }))
-      }
-      map.getSource('businesses').setData(geojson)
-    }
+    syncMapSource()
   })
 
   // Update heatmap data and visibility
@@ -580,7 +592,7 @@
     const response = await fetch('http://localhost:8000/api/map/enrich', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ coordinates })
+      body: JSON.stringify({ coordinates, sources: enabledSources ?? [] })
     })
     if (!response.ok) throw new Error('Failed to enrich polygon')
     const data = await response.json()
@@ -777,6 +789,9 @@
       if (!resp.ok) throw new Error('Failed to save POI')
       const poi = await resp.json()
       businesses = [...businesses, { name: poi.name, lat: poi.lat, lng: poi.lng, type: poi.category, address: '', phone: poi.phone || '', website: poi.website || '', email: '', source: 'custom', id: poi.id, description: poi.description || '' }]
+      syncMapSource()
+      poiSavedToast = true
+      setTimeout(() => { poiSavedToast = false }, 2500)
     } catch (e) {
       alert('Error saving POI: ' + e.message)
     }
@@ -790,6 +805,7 @@
       const resp = await fetch(`http://localhost:8000/api/pois/${id}`, { method: 'DELETE' })
       if (!resp.ok) throw new Error('Failed to delete POI')
       businesses = businesses.filter(b => b.id !== id)
+      syncMapSource()
     } catch (e) {
       alert('Error deleting POI: ' + e.message)
     }
@@ -808,6 +824,7 @@
       businesses = businesses.map(b => b.id === poiContextMenu.poiId
         ? { ...b, name: poiContextMenu.inputName.trim(), type: poiContextMenu.inputCategory, description: poiContextMenu.inputDescription || '', phone: poiContextMenu.inputPhone || '', website: poiContextMenu.inputWebsite || '' }
         : b)
+      syncMapSource()
     } catch (e) {
       alert('Error updating POI: ' + e.message)
     }
@@ -1066,7 +1083,7 @@
         }
       })
 
-      // Add circle layer for OSM businesses only
+      // Add circle layer for non-custom businesses (OSM + additional DBs)
       map.addLayer({
         id: 'businesses-layer',
         type: 'circle',
@@ -1075,8 +1092,8 @@
         paint: {
           'circle-radius': 6,
           'circle-color': generateColorExpression(),
-          'circle-stroke-width': 2,
-          'circle-stroke-color': '#1f2937'
+          'circle-stroke-width': 2.5,
+          'circle-stroke-color': ['get', 'source_color']
         }
       })
 
@@ -1284,6 +1301,12 @@
       })
 
       // Add popup on click - shared handler for all business layers
+      function sourceBadgeHtml(src) {
+        if (src === 'osm') return `<span style="font-size:10px;padding:1px 5px;background:#f3f4f6;color:#6b7280">${src.toUpperCase()}</span>`
+        if (src === 'custom') return `<span style="font-size:10px;padding:1px 5px;background:#fef3c7;color:#b45309">${src.toUpperCase()}</span>`
+        return `<span style="font-size:10px;padding:1px 5px;background:#dbeafe;color:#1d4ed8">${src}</span>`
+      }
+
       const showPopup = (e) => {
         const coordinates = e.features[0].geometry.coordinates.slice()
         const { name, type, address, phone, website, email, source, description } = e.features[0].properties
@@ -1294,7 +1317,7 @@
             <div class="p-3 min-w-[200px]">
               <div class="flex items-center justify-between mb-1">
                 <h3 class="font-bold text-gray-900">${name}</h3>
-                <span class="text-xs px-1.5 py-0.5 rounded ${source === 'custom' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}">${source === 'custom' ? 'Custom' : 'OSM'}</span>
+                ${sourceBadgeHtml(source || 'osm')}
               </div>
               <p class="text-xs text-gray-600 mb-2">${type}</p>
               ${description ? `<p class="text-xs text-gray-600 italic mb-2">${description}</p>` : ''}
@@ -1396,6 +1419,8 @@
           poiName = ''
           poiCategory = BUSINESS_CATEGORIES[0].name
           poiDescription = ''
+          poiPhone = ''
+          poiWebsite = ''
           polygonContextMenu = null
           poiContextMenu = null
           return
@@ -1436,6 +1461,8 @@
           poiName = ''
           poiCategory = BUSINESS_CATEGORIES[0].name
           poiDescription = ''
+          poiPhone = ''
+          poiWebsite = ''
           polygonContextMenu = null
         }
       })
@@ -1845,6 +1872,13 @@
     </div>
   {/if}
 
+
+  <!-- POI saved toast -->
+  {#if poiSavedToast}
+    <div class="absolute bottom-6 left-1/2 -translate-x-1/2 bg-gray-900 border-2 border-orange-500 px-4 py-2 text-xs text-white font-medium tracking-wide" style="z-index: 2000;">
+      POI SAVED
+    </div>
+  {/if}
 
   <!-- Category Filter -->
   <div class="absolute bottom-6 right-6" style="z-index: 1000; max-width: 280px;">

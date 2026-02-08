@@ -10,6 +10,10 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 from config import settings
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 
 _pool: ConnectionPool | None = None
@@ -121,17 +125,24 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
         estimated_population = int(area_km2 * 1000)
         region_type = self._classify_region(area_km2)
 
+        # Determine which sources to query (empty = all)
+        enabled = set(request.sources)
+
         # Query OSM via Overpass
-        osm_businesses, error = self._get_businesses_from_overpass(coords)
+        osm_businesses = []
+        error = None
+        if not enabled or 'osm' in enabled:
+            osm_businesses, error = self._get_businesses_from_overpass(coords)
 
         # Query custom POIs from PostGIS
-        try:
-            custom_businesses = self._get_custom_pois_in_polygon(coords)
-        except Exception as e:
-            print(f"PostGIS query error (POIs): {e}")
-            custom_businesses = []
+        custom_businesses = []
+        if not enabled or 'custom' in enabled:
+            try:
+                custom_businesses = self._get_custom_pois_in_polygon(coords)
+            except Exception as e:
+                print(f"PostGIS query error (POIs): {e}")
 
-        # Query custom areas that intersect the polygon
+        # Query custom areas that intersect the polygon (always — used for nearby_features)
         try:
             area_names = self._get_intersecting_area_names(coords)
         except Exception as e:
@@ -141,10 +152,11 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
         # Query additional PostGIS sources
         additional_businesses = []
         for db in settings.additional_dbs:
-            try:
-                additional_businesses += self._get_additional_db_pois_in_polygon(db, coords)
-            except Exception as e:
-                print(f"Additional DB '{db.name}' query error: {e}")
+            if not enabled or db.name in enabled:
+                try:
+                    additional_businesses += self._get_additional_db_pois_in_polygon(db, coords)
+                except Exception as e:
+                    print(f"Additional DB '{db.name}' query error: {e}")
 
         # Blend: custom first, then additional sources, then OSM
         all_businesses = custom_businesses + additional_businesses + osm_businesses
@@ -164,8 +176,11 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
         )
 
     def AddCustomPOI(self, request, context):
+        logger.debug(f"[GEO AddCustomPOI] name={request.name!r} category={request.category!r} lat={request.lat} lng={request.lng}")
         try:
+            logger.debug("[GEO AddCustomPOI] acquiring DB connection")
             with get_pool().connection() as conn:
+                logger.debug("[GEO AddCustomPOI] executing INSERT")
                 row = conn.execute("""
                     INSERT INTO custom_pois (name, category, description, phone, website, location, tags)
                     VALUES (%s, %s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s::jsonb)
@@ -182,6 +197,7 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                     request.tags_json or '{}'
                 )).fetchone()
                 conn.commit()
+            logger.debug(f"[GEO AddCustomPOI] inserted row: {row}")
             return geo_pb2.CustomPOIResponse(
                 id=row['id'],
                 name=row['name'],
@@ -195,6 +211,7 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                 error=''
             )
         except Exception as e:
+            logger.error(f"[GEO AddCustomPOI] exception: {e}", exc_info=True)
             return geo_pb2.CustomPOIResponse(error=str(e))
 
     def DeleteCustomPOI(self, request, context):

@@ -18,7 +18,7 @@
 
     businesses.forEach(business => {
       const category = BUSINESS_CATEGORIES.find(cat =>
-        cat.types.includes(business.type)
+        cat.types.includes(business.type) || cat.name === business.type
       )
       if (category) {
         counts[category.name]++
@@ -62,6 +62,12 @@
   let noneSelected = $derived(
     BUSINESS_CATEGORIES.every(cat => !enabledCategories[cat.name])
   )
+
+  let filtersActive = $derived(!allSelected || showContactsOnly)
+
+  let disabledCount = $derived(
+    BUSINESS_CATEGORIES.filter(cat => !enabledCategories[cat.name]).length + (showContactsOnly ? 1 : 0)
+  )
 </script>
 
 <div class="bg-gray-900 border-2 border-gray-700 shadow-lg" style="z-index: 1000;">
@@ -76,6 +82,9 @@
         <circle cx="12" cy="4" r="2" stroke="currentColor" stroke-width="1.5" fill="none"/>
       </svg>
       <span class="text-xs font-bold text-gray-400 tracking-wide">FILTER CATEGORIES</span>
+      {#if filtersActive}
+        <span class="px-1 bg-orange-500 text-white text-xs font-mono">{noneSelected ? '-*' : `-${disabledCount}`}</span>
+      {/if}
     </div>
     <svg
       width="12"

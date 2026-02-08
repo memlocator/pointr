@@ -1,7 +1,9 @@
 <script>
   import { APP_NAME } from '../config.js'
+  import { saveToStorage } from './stores/persistence.js'
+  import { getSourceColor } from './sourceColors.js'
 
-  let { currentView = $bindable(), businessCount = 0 } = $props()
+  let { currentView = $bindable(), enabledSources = $bindable(null), businessCount = 0 } = $props()
   let apiStatus = $state('checking...')
   let healthData = $state({
     status: 'checking...',
@@ -57,6 +59,38 @@
     // Cleanup on component destroy
     return () => clearInterval(interval)
   })
+
+  // Initialise enabledSources from health data on first load
+  $effect(() => {
+    if (healthData.datasources && enabledSources === null) {
+      const all = ['osm', 'custom']
+      for (const ds of healthData.datasources) {
+        if (ds.name !== 'Primary (PostGIS)') all.push(ds.name)
+      }
+      enabledSources = all
+    }
+  })
+
+  let disabledSourceCount = $derived.by(() => {
+    if (!enabledSources) return 0
+    const all = ['osm', 'custom']
+    if (healthData.datasources) {
+      for (const ds of healthData.datasources) {
+        if (ds.name !== 'Primary (PostGIS)') all.push(ds.name)
+      }
+    }
+    return all.filter(s => !enabledSources.includes(s)).length
+  })
+
+  function toggleSource(key) {
+    if (!enabledSources) return
+    if (enabledSources.includes(key)) {
+      enabledSources = enabledSources.filter(s => s !== key)
+    } else {
+      enabledSources = [...enabledSources, key]
+    }
+    saveToStorage('enabledSources', enabledSources)
+  }
 </script>
 
 <div class="w-full bg-gray-900 border-b border-gray-700 px-6 py-3 flex items-center justify-between">
@@ -130,7 +164,10 @@
         class="flex items-center gap-2 px-3 py-1 bg-gray-800 border border-gray-700 hover:bg-gray-700 transition-colors"
       >
         <div class={`w-2 h-2 rounded-full ${getStatusColor(apiStatus)}`}></div>
-        <span class="text-xs font-mono text-gray-400">API: {(apiStatus || 'unknown').toUpperCase()}</span>
+        <span class="text-xs font-mono text-gray-400">SOURCES</span>
+        {#if disabledSourceCount > 0}
+          <span class="px-1 bg-orange-500 text-white text-xs font-mono">{enabledSources?.length === 0 ? '-*' : `-${disabledSourceCount}`}</span>
+        {/if}
         <svg
           width="12"
           height="12"
@@ -169,20 +206,47 @@
               {/if}
             {/each}
           </div>
-          {#if healthData.datasources?.length > 0}
+          {#if healthData.datasources?.length > 0 || enabledSources !== null}
             <div class="px-4 py-2 border-t border-gray-700">
               <div class="text-xs font-bold text-gray-400 tracking-wide">DATASOURCES</div>
             </div>
-            <div class="p-2">
-              {#each healthData.datasources as ds}
-                <div class="flex items-center justify-between px-2 py-2 hover:bg-gray-800 transition-colors">
-                  <div class="flex items-center gap-2">
-                    <div class={`w-2 h-2 rounded-full ${getStatusColor(ds.status)}`}></div>
-                    <span class="text-xs font-medium text-gray-300">{ds.name}</span>
+            <div class="px-3 pb-2 flex flex-col gap-0.5">
+              {#each [{key: 'osm', label: 'OSM', sub: 'Overpass'}, {key: 'custom', label: 'Custom POIs', sub: 'local'}] as src}
+                <button
+                  onclick={() => toggleSource(src.key)}
+                  class="flex items-center gap-3 px-2 py-2 hover:bg-gray-800 transition-colors w-full text-left"
+                >
+                  <div class={`w-9 h-5 rounded-full flex-shrink-0 relative transition-colors ${enabledSources?.includes(src.key) ? 'bg-orange-500' : 'bg-gray-700'}`}>
+                    <span class={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${enabledSources?.includes(src.key) ? 'translate-x-[18px]' : 'translate-x-0.5'}`}></span>
                   </div>
-                  <div class="flex items-center gap-2">
-                    <span class="text-xs text-gray-500">{ds.message || ''}</span>
-                    <span class={`text-xs font-mono ${getStatusText(ds.status)}`}>{(ds.status || 'unknown').toUpperCase()}</span>
+                  <div class="w-2.5 h-2.5 rounded-full flex-shrink-0 border border-gray-600" style="background-color: {getSourceColor(src.key)}"></div>
+                  <span class="text-xs font-medium text-gray-200">{src.label}</span>
+                  <span class="text-xs text-gray-600 ml-auto">{src.sub}</span>
+                </button>
+              {/each}
+              {#each healthData.datasources?.filter(d => d.name !== 'Primary (PostGIS)') ?? [] as ds}
+                <button
+                  onclick={() => toggleSource(ds.name)}
+                  class="flex items-center gap-3 px-2 py-2 hover:bg-gray-800 transition-colors w-full text-left"
+                >
+                  <div class={`w-9 h-5 rounded-full flex-shrink-0 relative transition-colors ${enabledSources?.includes(ds.name) ? 'bg-orange-500' : 'bg-gray-700'}`}>
+                    <span class={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${enabledSources?.includes(ds.name) ? 'translate-x-[18px]' : 'translate-x-0.5'}`}></span>
+                  </div>
+                  <div class="w-2.5 h-2.5 rounded-full flex-shrink-0 border border-gray-600" style="background-color: {getSourceColor(ds.name)}"></div>
+                  <span class="text-xs font-medium text-gray-200">{ds.name}</span>
+                  <div class="flex items-center gap-1.5 ml-auto">
+                    <div class={`w-1.5 h-1.5 rounded-full ${getStatusColor(ds.status)}`}></div>
+                    <span class="text-xs text-gray-500">{(ds.status || '?').toUpperCase()}</span>
+                  </div>
+                </button>
+              {/each}
+              {#each healthData.datasources?.filter(d => d.name === 'Primary (PostGIS)') ?? [] as ds}
+                <div class="flex items-center gap-3 px-2 py-2">
+                  <div class="w-9 h-5 flex-shrink-0"></div>
+                  <span class="text-xs text-gray-600">{ds.name}</span>
+                  <div class="flex items-center gap-1.5 ml-auto">
+                    <div class={`w-1.5 h-1.5 rounded-full ${getStatusColor(ds.status)}`}></div>
+                    <span class="text-xs text-gray-500">{(ds.status || '?').toUpperCase()}</span>
                   </div>
                 </div>
               {/each}

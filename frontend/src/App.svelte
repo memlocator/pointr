@@ -38,6 +38,9 @@
   let stops = $state([])
   let routeData = $state(null)
 
+  // Source filtering — null until Topbar populates from health data
+  let enabledSources = $state(loadFromStorage('enabledSources', null))
+
   // Auto-save to localStorage when state changes
   $effect(() => {
     saveToStorage('businesses', businesses)
@@ -73,10 +76,10 @@
 </script>
 
 <div class="h-screen w-screen flex flex-col bg-gray-900">
-  <Topbar bind:currentView businessCount={businesses.length} />
+  <Topbar bind:currentView bind:enabledSources businessCount={businesses.length} />
   <div class="flex-1 overflow-hidden">
     {#if currentView === 'map'}
-      <Map bind:businesses bind:polygons bind:mapCenter bind:mapZoom bind:currentView bind:searchQuery bind:enabledCategories bind:showContactsOnly bind:heatmapEnabled bind:heatmapCategory bind:routingEnabled bind:stops bind:routeData />
+      <Map bind:businesses bind:polygons bind:mapCenter bind:mapZoom bind:currentView bind:searchQuery bind:enabledCategories bind:showContactsOnly bind:heatmapEnabled bind:heatmapCategory bind:routingEnabled bind:stops bind:routeData bind:enabledSources />
     {:else if currentView === 'list'}
       {#key currentView}
         <ListView {businesses} bind:selectedBusinesses bind:currentView bind:searchQuery bind:enabledCategories bind:showContactsOnly />

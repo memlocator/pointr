@@ -28,6 +28,7 @@ message Coordinate {
 
 message PolygonRequest {
   repeated Coordinate coordinates = 1;
+  repeated string sources = 2;
 }
 
 message Business {
