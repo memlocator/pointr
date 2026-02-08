@@ -100,11 +100,11 @@ pointr/
 │   └── Dockerfile
 ├── frontend/                 # Svelte 5 + MapLibre UI — [README](frontend/README.md)
 │   └── src/
-├── docker-compose-dev.yml
-├── docker-compose-prod.yml
+├── docker-compose-dev.yml    # Dev stack (hot reload + dev proxy)
+├── docker-compose-prod.yml   # Prod stack (Nginx front + uvicorn workers)
 ├── .env                      # Secrets (gitignored)
 ├── .env.example              # Template for secrets
-├── nginx/                    # Dev + prod proxy configs
+├── nginx/                    # Dev + prod proxy configs (X-User injection in dev)
 ├── logging/                  # Grafana/Loki/Promtail configs
 └── README.md
 ```
@@ -133,6 +133,15 @@ Notes:
 - In dev, all frontend API calls go through the Nginx dev proxy at `:8081`, which injects `X-User`.
 - Promtail has no UI. Use Grafana to view logs; Promtail exposes metrics at `http://localhost:9080/metrics`.
 
+## Nginx Proxy
+
+This project uses Nginx as a thin HTTP proxy in both dev and prod:
+
+- **Dev** (`nginx/dev.conf`): runs on `:8081`, forwards `/api`, `/docs`, `/openapi.json` to the backend and injects an `X-User` header for local auth.
+- **Prod** (`nginx/prod.conf`): runs on `:8080`, forwards `/api`, `/docs`, `/openapi.json` to the backend and serves the frontend at `/` (no header injection).
+
+This keeps the frontend using a single base URL (`/api`) in production while allowing a simple dev auth proxy locally.
+
 ### Production
 
 ```bash
@@ -146,6 +155,11 @@ Services:
 - Grafana: http://localhost:3000
 
 Grafana login (default): `admin` / `admin` (configurable via env vars).
+
+## Docker Compose Variants
+
+- **`docker-compose-dev.yml`**: hot-reload for frontend + backend, dev Nginx proxy with `X-User` injection, suitable for local iteration.
+- **`docker-compose-prod.yml`**: production settings (no code mounts), Nginx fronting frontend + backend, and Uvicorn with workers.
 
 ## Configuration
 

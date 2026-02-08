@@ -19,6 +19,10 @@ graph TD
 
 Promtail discovers Docker containers and forwards their logs to Loki. Grafana is pre-provisioned with Loki as the default datasource.
 
+Grafana also provisions a basic “Docker Logs” dashboard with:
+- Log volume by container
+- Log stream filtered by container
+
 ## Quick Start
 
 ```bash
@@ -27,15 +31,15 @@ docker compose up --build
 
 ## Example Queries
 
-- Backend logs: `{service="backend"}`
-- Geo logs: `{service="geo"}`
-- Recon logs: `{service="recon"}`
-- Frontend logs: `{service="frontend"}`
+- All logs: `{job="docker"}`
+- Single container (by id): `{job="docker", container_id="..."}`
 
 ## Files
 
 - `logging/loki-config.yml`
 - `logging/promtail-config.yml`
 - `logging/grafana/provisioning/datasources/loki.yml`
+- `logging/grafana/provisioning/dashboards/dashboards.yml`
+- `logging/grafana/dashboards/docker-logs.json`
 
 If you want structured JSON logs with user identifiers, I can wire that in next.

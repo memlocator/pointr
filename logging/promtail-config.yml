@@ -15,3 +15,7 @@ scrape_configs:
         labels:
           job: docker
           __path__: /var/lib/docker/containers/*/*-json.log
+    relabel_configs:
+      - source_labels: [__path__]
+        regex: ".*/([0-9a-f]{12,64})/.*"
+        target_label: container_id

@@ -116,6 +116,7 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./logging/grafana/provisioning:/etc/grafana/provisioning
+      - ./logging/grafana/dashboards:/etc/grafana/dashboards
     depends_on:
       - loki
     restart: unless-stopped
