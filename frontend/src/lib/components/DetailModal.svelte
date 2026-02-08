@@ -67,7 +67,9 @@ function startEdit() {
             class="text-xs text-amber-400 hover:text-amber-300 px-2 py-1 border border-gray-700 hover:border-amber-500"
           >Edit</button>
         {/if}
-        <button onclick={onClose} class="text-gray-500 hover:text-gray-300 text-lg leading-none">✕</button>
+        <button onclick={onClose} class="text-gray-500 hover:text-gray-300">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 2 L12 12 M12 2 L2 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
       </div>
     </div>
 

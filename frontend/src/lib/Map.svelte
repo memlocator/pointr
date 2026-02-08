@@ -23,7 +23,8 @@
     heatmapCategory = $bindable(''),
     routingEnabled = $bindable(false),
     stops = $bindable([]),
-    routeData = $bindable(null)
+    routeData = $bindable(null),
+    pickingStop = $bindable(null)
   } = $props()
   let mapContainer
   let map
@@ -309,6 +310,12 @@
     }
   })
 
+  // Change cursor when in stop-pick mode
+  $effect(() => {
+    if (!map || !mapLoaded) return
+    map.getCanvas().style.cursor = pickingStop !== null ? 'crosshair' : ''
+  })
+
   // Resize map when routing panel opens/closes
   $effect(() => {
     if (routingEnabled !== undefined && map && mapLoaded) {
@@ -510,7 +517,7 @@
     const data = await response.json()
     if (data.error) {
       console.warn('Enrichment error:', data.error)
-      alert(`⚠️ ${data.error}`)
+      alert(data.error)
     }
     return data.businesses || []
   }
@@ -1203,10 +1210,16 @@
         if (!routingEnabled) return
 
         const { lng, lat } = e.lngLat
+        const name = `${lat.toFixed(4)}, ${lng.toFixed(4)}`
 
-        // Add a new stop at end (max 10)
-        if (stops.length < 10) {
-          stops = [...stops, { lat, lng, name: `${lat.toFixed(4)}, ${lng.toFixed(4)}`, description: '' }]
+        if (pickingStop !== null) {
+          // Set coords on the targeted stop
+          stops = stops.map((s, i) => i === pickingStop ? { ...s, lat, lng, name } : s)
+          pickingStop = null
+          map.getCanvas().style.cursor = ''
+        } else if (e.originalEvent.altKey && stops.length < 10) {
+          // Alt+click adds a new stop
+          stops = [...stops, { lat, lng, name, description: '' }]
         }
       }
 
@@ -1330,6 +1343,7 @@
     bind:routingEnabled
     bind:stops
     bind:routeData
+    bind:pickingStop
     onFindAlongRoute={enrichAlongRoute}
   />
 
@@ -1364,7 +1378,9 @@
     >
       <div class="flex items-center justify-between mb-2">
         <span class="text-xs font-bold text-gray-400 tracking-wide">ADD CUSTOM POI</span>
-        <button onclick={() => poiForm = null} class="text-gray-500 hover:text-gray-300 text-xs">✕</button>
+        <button onclick={() => poiForm = null} class="text-gray-500 hover:text-gray-300">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2 L10 10 M10 2 L2 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
       </div>
       <input
         type="text"
@@ -1409,15 +1425,15 @@
         <button
           onclick={() => { detailModal = { type: 'poi', id: poiContextMenu.poiId, name: poiContextMenu.poiName, category: poiContextMenu.poiCategory, description: poiContextMenu.poiDescription, lat: poiContextMenu.lngLat[1], lng: poiContextMenu.lngLat[0] }; poiContextMenu = null }}
           class="w-full px-3 py-2 text-left text-xs text-gray-300 hover:bg-gray-800 flex items-center gap-2"
-        ><span>📋</span> View Details</button>
+        ><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg> View Details</button>
         <button
           onclick={() => poiContextMenu = { ...poiContextMenu, mode: 'edit', inputName: poiContextMenu.poiName, inputCategory: poiContextMenu.poiCategory, inputDescription: poiContextMenu.poiDescription }}
           class="w-full px-3 py-2 text-left text-xs text-amber-400 hover:bg-gray-800 flex items-center gap-2"
-        ><span>✎</span> Edit POI</button>
+        ><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit POI</button>
         <button
           onclick={() => deleteCustomPOI(poiContextMenu.poiId)}
           class="w-full px-3 py-2 text-left text-xs text-red-400 hover:bg-gray-800 flex items-center gap-2"
-        ><span>✕</span> Delete POI</button>
+        ><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg> Delete POI</button>
         <button onclick={() => poiContextMenu = null} class="w-full px-3 py-2 text-left text-xs text-gray-500 hover:bg-gray-800">Cancel</button>
       {:else if poiContextMenu.mode === 'edit'}
         <div class="p-3">
@@ -1523,18 +1539,18 @@
         <button
           onclick={() => { detailModal = { type: 'area', id: polygonContextMenu.areaId, name: polygonContextMenu.areaName, description: polygonContextMenu.areaDescription }; polygonContextMenu = null }}
           class="w-full px-3 py-2 text-left text-xs text-gray-300 hover:bg-gray-800 flex items-center gap-2"
-        ><span>📋</span> View Details</button>
+        ><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg> View Details</button>
         <button
           onclick={() => polygonContextMenu = { ...polygonContextMenu, mode: 'saved-area-edit', inputName: polygonContextMenu.areaName, inputDescription: polygonContextMenu.areaDescription }}
           class="w-full px-3 py-2 text-left text-xs text-amber-400 hover:bg-gray-800 flex items-center gap-2"
         >
-          <span>✎</span> Edit Area
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit Area
         </button>
         <button
           onclick={() => deleteCustomArea(polygonContextMenu.areaId)}
           class="w-full px-3 py-2 text-left text-xs text-red-400 hover:bg-gray-800 flex items-center gap-2"
         >
-          <span>✕</span> Delete Area
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg> Delete Area
         </button>
         <button onclick={() => polygonContextMenu = null} class="w-full px-3 py-2 text-left text-xs text-gray-500 hover:bg-gray-800">Cancel</button>
       {:else if polygonContextMenu.mode === 'saved-area-edit'}
@@ -1589,13 +1605,13 @@
             onclick={() => polygonContextMenu = { ...polygonContextMenu, mode: 'edit', inputName: saved.name, inputDescription: '' }}
             class="w-full px-3 py-2 text-left text-xs text-amber-400 hover:bg-gray-800 flex items-center gap-2"
           >
-            <span>✎</span> Edit Area
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit Area
           </button>
           <button
             onclick={() => deleteCustomArea(saved.id)}
             class="w-full px-3 py-2 text-left text-xs text-red-400 hover:bg-gray-800 flex items-center gap-2"
           >
-            <span>✕</span> Delete Area
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg> Delete Area
           </button>
         {:else}
           <button

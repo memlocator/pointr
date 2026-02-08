@@ -5,6 +5,7 @@
     routingEnabled = $bindable(false),
     stops = $bindable([]),
     routeData = $bindable(null),
+    pickingStop = $bindable(null),
     onFindAlongRoute = null
   } = $props()
 
@@ -34,6 +35,7 @@
       routeError = ''
       activeSearch = null
       activeDesc = null
+      pickingStop = null
     }
   })
 
@@ -79,6 +81,7 @@
   function onStopSelected(i, loc) {
     stops = stops.map((s, idx) => idx === i ? { ...s, lat: loc.lat, lng: loc.lng, name: loc.name } : s)
     activeSearch = null
+    if (pickingStop === i) pickingStop = null
   }
 
   function stopColor(i) {
@@ -230,6 +233,16 @@
   </div>
 
   <div class="p-4 space-y-3 flex-1 overflow-y-auto">
+    <!-- Pick-from-map hint -->
+    {#if pickingStop !== null}
+      <div class="px-2 py-1.5 bg-orange-900 border border-orange-700 text-xs text-orange-200 flex items-center justify-between">
+        <span>Click map to set stop {pickingStop + 1}</span>
+        <button onclick={() => pickingStop = null} class="text-orange-400 hover:text-orange-200">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1 1 L9 9 M9 1 L1 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    {/if}
+
     <!-- Stops list -->
     <div class="space-y-1">
       {#each stops as stop, i}
@@ -269,6 +282,16 @@
                 <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
               </svg>
             </button>
+            <!-- Pick from map -->
+            <button
+              onclick={() => pickingStop = pickingStop === i ? null : i}
+              class="transition-colors flex-shrink-0 {pickingStop === i ? 'text-orange-400' : 'text-gray-500 hover:text-orange-400'}"
+              title="Set from map"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="10" r="3"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+              </svg>
+            </button>
             <!-- Remove -->
             {#if stops.length > 2}
               <button onclick={() => removeStop(i)} class="text-gray-600 hover:text-red-400 transition-colors flex-shrink-0" title="Remove stop">
@@ -283,7 +306,7 @@
             <div class="ml-8">
               <LocationSearchBar
                 placeholder="Search location..."
-                bind:selectedLocation={stop}
+                bind:selectedLocation={stops[i]}
                 inline={true}
                 onLocationSelect={(loc) => onStopSelected(i, loc)}
               />
@@ -293,7 +316,7 @@
           {#if activeDesc === i}
             <div class="ml-8">
               <textarea
-                bind:value={stop.description}
+                bind:value={stops[i].description}
                 placeholder="Add notes for this stop..."
                 rows="2"
                 class="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 text-gray-200 text-xs placeholder-gray-600 focus:border-orange-500 focus:outline-none resize-none"
@@ -376,7 +399,8 @@
       <label class="text-xs font-bold text-gray-400 block">IMPORT</label>
       <input bind:this={fileInput} type="file" accept=".geojson,.json" class="hidden" onchange={onImportFile} />
       <button onclick={() => fileInput.click()} class="w-full py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-xs transition-colors">
-        📂 Load GeoJSON
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        Load GeoJSON
       </button>
     </div>
 
