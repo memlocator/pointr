@@ -20,8 +20,8 @@ class Settings(BaseSettings):
     # Service Configuration
     backend_host: str = "0.0.0.0"
     backend_port: int = 8000
-    enrichment_host: str = "enrichment"
-    enrichment_port: int = 50051
+    geo_host: str = "geo"
+    geo_port: int = 50051
     recon_host: str = "recon"
     recon_port: int = 50052
 

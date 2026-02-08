@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Development server with hot reload support for enrichment service"""
+"""Development server with hot reload support for geo service"""
 
 import sys
 import time
@@ -27,7 +27,7 @@ class GrpcServerHandler(FileSystemEventHandler):
             except subprocess.TimeoutExpired:
                 self.process.kill()
 
-        print("🚀 Starting enrichment gRPC server...")
+        print("🚀 Starting geo gRPC server...")
         self.process = subprocess.Popen(
             [sys.executable, "main.py"],
             stdout=sys.stdout,

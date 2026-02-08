@@ -4,8 +4,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import uvicorn
 import grpc
-import enrichment_pb2
-import enrichment_pb2_grpc
+import geo_pb2
+import geo_pb2_grpc
 import recon_pb2
 import recon_pb2_grpc
 import httpx
@@ -40,6 +40,8 @@ class Business(BaseModel):
     phone: str = ''
     website: str = ''
     email: str = ''
+    source: str = 'osm'
+    id: str = ''
 
 class EnrichmentResponse(BaseModel):
     area_km2: float
@@ -126,6 +128,45 @@ class NominatimResult(BaseModel):
 class NominatimSearchResponse(BaseModel):
     results: list[NominatimResult]
 
+# Custom geo data models
+class CustomPOIRequest(BaseModel):
+    name: str
+    category: str
+    lat: float
+    lng: float
+    tags: dict = {}
+
+class CustomPOIResponse(BaseModel):
+    id: str
+    name: str
+    category: str
+    lat: float
+    lng: float
+    tags: dict = {}
+    error: str = ''
+
+class CustomAreaRequest(BaseModel):
+    name: str
+    description: str = ''
+    coordinates: list[Coordinate]
+    metadata: dict = {}
+
+class CustomAreaResponse(BaseModel):
+    id: str
+    name: str
+    description: str = ''
+    coordinates: list[Coordinate] = []
+    metadata: dict = {}
+    error: str = ''
+
+class UpdateCustomPOIRequest(BaseModel):
+    name: str
+    category: str
+
+class UpdateCustomAreaRequest(BaseModel):
+    name: str
+    description: str = ''
+
 # Routing models
 class RouteRequest(BaseModel):
     start: Coordinate
@@ -148,32 +189,31 @@ async def health_check():
         "status": "healthy",
         "services": {
             "backend": {"status": "healthy", "message": "Backend API operational"},
-            "enrichment": {"status": "unknown", "message": "Not checked"},
+            "geo": {"status": "unknown", "message": "Not checked"},
             "recon": {"status": "unknown", "message": "Not checked"}
         }
     }
 
-    # Check enrichment service
+    # Check geo service
     try:
-        with grpc.insecure_channel(f'{settings.enrichment_host}:{settings.enrichment_port}') as channel:
-            stub = enrichment_pb2_grpc.EnrichmentServiceStub(channel)
-            # Call health check endpoint (doesn't hit external APIs)
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             response = stub.Health(
-                enrichment_pb2.HealthRequest(),
+                geo_pb2.HealthRequest(),
                 timeout=2.0
             )
-            health_status["services"]["enrichment"] = {
+            health_status["services"]["geo"] = {
                 "status": response.status,
                 "message": response.message
             }
     except grpc.RpcError as e:
-        health_status["services"]["enrichment"] = {
+        health_status["services"]["geo"] = {
             "status": "unhealthy",
             "message": f"gRPC error: {e.code().name}"
         }
         health_status["status"] = "degraded"
     except Exception as e:
-        health_status["services"]["enrichment"] = {
+        health_status["services"]["geo"] = {
             "status": "unhealthy",
             "message": f"Connection failed: {str(e)}"
         }
@@ -210,24 +250,20 @@ async def health_check():
 @app.post("/api/enrich", response_model=EnrichmentResponse)
 @app.post("/api/map/enrich", response_model=EnrichmentResponse)
 async def enrich_polygon(request: PolygonRequest):
-    """Call the enrichment service via gRPC to enrich polygon data"""
+    """Call the geo service via gRPC to enrich polygon data"""
     try:
-        # Connect to enrichment service
-        with grpc.insecure_channel(f'{settings.enrichment_host}:{settings.enrichment_port}') as channel:
-            stub = enrichment_pb2_grpc.EnrichmentServiceStub(channel)
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
 
-            # Convert coordinates to proto format
             proto_coords = [
-                enrichment_pb2.Coordinate(lat=coord.lat, lng=coord.lng)
+                geo_pb2.Coordinate(lat=coord.lat, lng=coord.lng)
                 for coord in request.coordinates
             ]
 
-            # Make RPC call
             response = stub.EnrichPolygon(
-                enrichment_pb2.PolygonRequest(coordinates=proto_coords)
+                geo_pb2.PolygonRequest(coordinates=proto_coords)
             )
 
-            # Convert businesses from proto to pydantic
             businesses = [
                 Business(
                     name=b.name,
@@ -237,7 +273,9 @@ async def enrich_polygon(request: PolygonRequest):
                     address=b.address,
                     phone=b.phone,
                     website=b.website,
-                    email=b.email
+                    email=b.email,
+                    source=b.source,
+                    id=b.id
                 )
                 for b in response.businesses
             ]
@@ -251,7 +289,7 @@ async def enrich_polygon(request: PolygonRequest):
                 error=response.error
             )
     except grpc.RpcError as e:
-        raise HTTPException(status_code=503, detail=f"Enrichment service error: {e.details()}")
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
 
 @app.post("/api/recon", response_model=ReconResponse)
 async def run_recon(request: ReconRequest):
@@ -452,6 +490,184 @@ async def run_recon_stream(request: ReconRequest):
             "X-Accel-Buffering": "no"
         }
     )
+
+@app.post("/api/pois", response_model=CustomPOIResponse)
+async def add_custom_poi(request: CustomPOIRequest):
+    """Add a custom POI"""
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            response = stub.AddCustomPOI(geo_pb2.AddCustomPOIRequest(
+                name=request.name,
+                category=request.category,
+                lat=request.lat,
+                lng=request.lng,
+                tags_json=json.dumps(request.tags)
+            ))
+            if response.error:
+                raise HTTPException(status_code=400, detail=response.error)
+            return CustomPOIResponse(
+                id=response.id,
+                name=response.name,
+                category=response.category,
+                lat=response.lat,
+                lng=response.lng,
+                tags=json.loads(response.tags_json) if response.tags_json else {}
+            )
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
+
+@app.get("/api/pois", response_model=list[CustomPOIResponse])
+async def list_custom_pois(
+    min_lat: float | None = None,
+    min_lng: float | None = None,
+    max_lat: float | None = None,
+    max_lng: float | None = None
+):
+    """List custom POIs, optionally filtered by bounding box"""
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            response = stub.ListCustomPOIs(geo_pb2.ListCustomPOIsRequest(
+                min_lat=min_lat or 0.0,
+                min_lng=min_lng or 0.0,
+                max_lat=max_lat or 0.0,
+                max_lng=max_lng or 0.0
+            ))
+            return [
+                CustomPOIResponse(
+                    id=p.id, name=p.name, category=p.category,
+                    lat=p.lat, lng=p.lng,
+                    tags=json.loads(p.tags_json) if p.tags_json else {}
+                )
+                for p in response.pois
+            ]
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
+
+@app.patch("/api/pois/{poi_id}", response_model=CustomPOIResponse)
+async def update_custom_poi(poi_id: str, request: UpdateCustomPOIRequest):
+    """Rename/recategorize a custom POI"""
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            response = stub.UpdateCustomPOI(geo_pb2.UpdateCustomPOIRequest(
+                id=poi_id,
+                name=request.name,
+                category=request.category
+            ))
+            if response.error:
+                raise HTTPException(status_code=404, detail=response.error)
+            return CustomPOIResponse(
+                id=response.id,
+                name=response.name,
+                category=response.category,
+                lat=response.lat,
+                lng=response.lng,
+                tags=json.loads(response.tags_json) if response.tags_json else {}
+            )
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
+
+@app.delete("/api/pois/{poi_id}")
+async def delete_custom_poi(poi_id: str):
+    """Delete a custom POI"""
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            response = stub.DeleteCustomPOI(geo_pb2.DeleteCustomPOIRequest(id=poi_id))
+            if not response.success:
+                raise HTTPException(status_code=404, detail=response.error)
+            return {"success": True}
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
+
+@app.post("/api/areas", response_model=CustomAreaResponse)
+async def add_custom_area(request: CustomAreaRequest):
+    """Add a custom annotated area"""
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            proto_coords = [geo_pb2.Coordinate(lat=c.lat, lng=c.lng) for c in request.coordinates]
+            response = stub.AddCustomArea(geo_pb2.AddCustomAreaRequest(
+                name=request.name,
+                description=request.description,
+                coordinates=proto_coords,
+                metadata_json=json.dumps(request.metadata)
+            ))
+            if response.error:
+                raise HTTPException(status_code=400, detail=response.error)
+            return CustomAreaResponse(
+                id=response.id,
+                name=response.name,
+                description=response.description,
+                coordinates=[Coordinate(lat=c.lat, lng=c.lng) for c in response.coordinates],
+                metadata=json.loads(response.metadata_json) if response.metadata_json else {}
+            )
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
+
+@app.get("/api/areas", response_model=list[CustomAreaResponse])
+async def list_custom_areas():
+    """List all custom areas"""
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            response = stub.ListCustomAreas(geo_pb2.ListCustomAreasRequest())
+            return [
+                CustomAreaResponse(
+                    id=a.id, name=a.name, description=a.description,
+                    coordinates=[Coordinate(lat=c.lat, lng=c.lng) for c in a.coordinates],
+                    metadata=json.loads(a.metadata_json) if a.metadata_json else {}
+                )
+                for a in response.areas
+            ]
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
+
+@app.patch("/api/areas/{area_id}", response_model=CustomAreaResponse)
+async def update_custom_area(area_id: str, request: UpdateCustomAreaRequest):
+    """Rename/update a custom area"""
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            response = stub.UpdateCustomArea(geo_pb2.UpdateCustomAreaRequest(
+                id=area_id,
+                name=request.name,
+                description=request.description
+            ))
+            if response.error:
+                raise HTTPException(status_code=404, detail=response.error)
+            return CustomAreaResponse(
+                id=response.id,
+                name=response.name,
+                description=response.description,
+                coordinates=[Coordinate(lat=c.lat, lng=c.lng) for c in response.coordinates],
+                metadata=json.loads(response.metadata_json) if response.metadata_json else {}
+            )
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
+
+@app.delete("/api/areas/{area_id}")
+async def delete_custom_area(area_id: str):
+    """Delete a custom area"""
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            response = stub.DeleteCustomArea(geo_pb2.DeleteCustomAreaRequest(id=area_id))
+            if not response.success:
+                raise HTTPException(status_code=404, detail=response.error)
+            return {"success": True}
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
 
 @app.get("/api/search", response_model=NominatimSearchResponse)
 async def search_location(q: str):

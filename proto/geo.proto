@@ -1,0 +1,134 @@
+syntax = "proto3";
+
+package geo;
+
+service GeoDataService {
+  rpc Health(HealthRequest) returns (HealthResponse);
+  rpc EnrichPolygon(PolygonRequest) returns (EnrichmentResponse);
+
+  rpc AddCustomPOI(AddCustomPOIRequest) returns (CustomPOIResponse);
+  rpc UpdateCustomPOI(UpdateCustomPOIRequest) returns (CustomPOIResponse);
+  rpc DeleteCustomPOI(DeleteCustomPOIRequest) returns (DeleteResponse);
+  rpc ListCustomPOIs(ListCustomPOIsRequest) returns (ListCustomPOIsResponse);
+
+  rpc AddCustomArea(AddCustomAreaRequest) returns (CustomAreaResponse);
+  rpc UpdateCustomArea(UpdateCustomAreaRequest) returns (CustomAreaResponse);
+  rpc DeleteCustomArea(DeleteCustomAreaRequest) returns (DeleteResponse);
+  rpc ListCustomAreas(ListCustomAreasRequest) returns (ListCustomAreasResponse);
+}
+
+message Coordinate {
+  double lat = 1;
+  double lng = 2;
+}
+
+message PolygonRequest {
+  repeated Coordinate coordinates = 1;
+}
+
+message Business {
+  string name = 1;
+  double lat = 2;
+  double lng = 3;
+  string type = 4;
+  string address = 5;
+  string phone = 6;
+  string website = 7;
+  string email = 8;
+  string source = 9;
+  string id = 10;
+}
+
+message EnrichmentResponse {
+  double area_km2 = 1;
+  int32 estimated_population = 2;
+  string region_type = 3;
+  repeated string nearby_features = 4;
+  repeated Business businesses = 5;
+  string error = 6;
+}
+
+message AddCustomPOIRequest {
+  string name = 1;
+  string category = 2;
+  double lat = 3;
+  double lng = 4;
+  string tags_json = 5;
+}
+
+message CustomPOIResponse {
+  string id = 1;
+  string name = 2;
+  string category = 3;
+  double lat = 4;
+  double lng = 5;
+  string tags_json = 6;
+  string error = 7;
+}
+
+message UpdateCustomPOIRequest {
+  string id = 1;
+  string name = 2;
+  string category = 3;
+}
+
+message DeleteCustomPOIRequest {
+  string id = 1;
+}
+
+message DeleteResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message ListCustomPOIsRequest {
+  double min_lat = 1;
+  double min_lng = 2;
+  double max_lat = 3;
+  double max_lng = 4;
+}
+
+message ListCustomPOIsResponse {
+  repeated CustomPOIResponse pois = 1;
+  string error = 2;
+}
+
+message AddCustomAreaRequest {
+  string name = 1;
+  string description = 2;
+  repeated Coordinate coordinates = 3;
+  string metadata_json = 4;
+}
+
+message CustomAreaResponse {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  repeated Coordinate coordinates = 4;
+  string metadata_json = 5;
+  string error = 6;
+}
+
+message UpdateCustomAreaRequest {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+}
+
+message DeleteCustomAreaRequest {
+  string id = 1;
+}
+
+message ListCustomAreasRequest {}
+
+message ListCustomAreasResponse {
+  repeated CustomAreaResponse areas = 1;
+  string error = 2;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1;
+  string message = 2;
+}

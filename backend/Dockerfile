@@ -7,7 +7,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Copy dependency files
 COPY backend/pyproject.toml backend/uv.lock ./
-COPY proto/enrichment.proto ./
+COPY proto/geo.proto ./
 COPY proto/recon.proto ./
 
 # Install dependencies
@@ -18,7 +18,7 @@ RUN uv run python -m grpc_tools.protoc \
     -I. \
     --python_out=. \
     --grpc_python_out=. \
-    enrichment.proto
+    geo.proto
 
 RUN uv run python -m grpc_tools.protoc \
     -I. \

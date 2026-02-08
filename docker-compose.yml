@@ -1,17 +1,46 @@
 services:
-  enrichment:
+  postgis:
+    image: postgis/postgis:16-3.4-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pointr -d pointr"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  geo:
     build:
       context: .
-      dockerfile: enrichment/Dockerfile
+      dockerfile: geo/Dockerfile
     ports:
       - "50051:50051"
     volumes:
       # Mount source code for hot reloading
-      - ./enrichment/main.py:/app/main.py
-      - ./enrichment/config.py:/app/config.py
-      - ./enrichment/pyproject.toml:/app/pyproject.toml
+      - ./geo/main.py:/app/main.py
+      - ./geo/config.py:/app/config.py
+      - ./geo/pyproject.toml:/app/pyproject.toml
     environment:
       - PYTHONUNBUFFERED=1
+      - GEO_DB_URL=${GEO_DB_URL}
+    depends_on:
+      postgis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  adminer:
+    image: adminer:latest
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgis
     restart: unless-stopped
 
   recon:
@@ -43,7 +72,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     depends_on:
-      - enrichment
+      - geo
       - recon
     restart: unless-stopped
 
@@ -67,6 +96,9 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+
+volumes:
+  postgis_data:
 
 networks:
   default:

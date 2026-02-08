@@ -33,6 +33,21 @@
   let startMarker = null
   let endMarker = null
 
+  // Custom areas loaded from DB
+  let customAreas = $state([])
+
+  // Custom POI form (right-click)
+  let poiForm = $state(null) // { lat, lng, x, y } or null
+  let poiName = $state('')
+  let poiCategory = $state(BUSINESS_CATEGORIES[0].name)
+  let poiContextMenu = $state(null) // { poiId, poiName, poiCategory, x, y, mode: 'view' | 'edit', inputName, inputCategory }
+
+  // Tracks which draw feature IDs have been saved as areas (session only)
+  let drawnPolygonSaves = $state({}) // { [drawFeatureId]: { id, name } }
+
+  // Polygon right-click context menu
+  let polygonContextMenu = $state(null) // { featureId, coordinates, x, y, mode, inputName, inputDescription }
+
   // Filter businesses based on enabled categories and contact info
   let filteredBusinesses = $derived.by(() => {
     // Force tracking of enabledCategories object
@@ -88,7 +103,9 @@
             address: business.address,
             phone: business.phone,
             website: business.website,
-            email: business.email
+            email: business.email,
+            source: business.source || 'osm',
+            id: business.id || ''
           }
         }))
       }
@@ -292,6 +309,29 @@
     }
   })
 
+  // Sync custom areas to map
+  $effect(() => {
+    if (!mapLoaded || !map) return
+    const source = map.getSource('custom-areas')
+    if (!source) return
+    source.setData({
+      type: 'FeatureCollection',
+      features: customAreas.map(area => ({
+        type: 'Feature',
+        properties: { name: area.name, id: area.id, description: area.description || '' },
+        geometry: {
+          type: 'Polygon',
+          coordinates: [area.coordinates.map(c => [c.lng, c.lat])]
+        }
+      }))
+    })
+  })
+
+  // Load custom areas once map is ready
+  $effect(() => {
+    if (mapLoaded) loadCustomAreas()
+  })
+
   // Resize map when routing panel opens/closes
   $effect(() => {
     if (routingEnabled !== undefined && map && mapLoaded) {
@@ -483,63 +523,200 @@
     businesses = []
   }
 
+  async function enrichCoordinates(coordinates) {
+    const response = await fetch('http://localhost:8000/api/map/enrich', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ coordinates })
+    })
+    if (!response.ok) throw new Error('Failed to enrich polygon')
+    const data = await response.json()
+    if (data.error) {
+      console.warn('Enrichment error:', data.error)
+      alert(`⚠️ ${data.error}`)
+    }
+    return data.businesses || []
+  }
+
   async function enrichPolygons() {
     const data = draw.getAll()
-
     if (!data.features || data.features.length === 0) {
       alert('Please draw a polygon first!')
       return
     }
-
     isEnriching = true
     clearBusinessMarkers()
-
     try {
       const allBusinesses = []
-
       for (const feature of data.features) {
         if (feature.geometry.type !== 'Polygon') continue
-
-        // Convert polygon coordinates to lat/lng format
-        const coordinates = feature.geometry.coordinates[0].map(([lng, lat]) => ({
-          lat,
-          lng
-        }))
-
-        // Call backend API
-        const response = await fetch('http://localhost:8000/api/map/enrich', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ coordinates })
-        })
-
-        if (!response.ok) {
-          throw new Error('Failed to enrich polygon')
-        }
-
-        const enrichmentData = await response.json()
-        console.log('Enrichment response:', enrichmentData)
-
-        // Check for errors from enrichment service
-        if (enrichmentData.error) {
-          console.warn('Enrichment error:', enrichmentData.error)
-          alert(`⚠️ ${enrichmentData.error}`)
-          // Continue with partial results if any businesses were returned
-        }
-
-        console.log(`Received ${enrichmentData.businesses.length} businesses`)
-        allBusinesses.push(...enrichmentData.businesses)
+        const coordinates = feature.geometry.coordinates[0].map(([lng, lat]) => ({ lat, lng }))
+        const results = await enrichCoordinates(coordinates)
+        allBusinesses.push(...results)
       }
-
-      // Update businesses array - the $effect will handle map updates with filtering
       businesses = allBusinesses
-      console.log(`Added ${allBusinesses.length} businesses`)
     } catch (error) {
       console.error('Error enriching polygon:', error)
       alert('Failed to enrich polygon: ' + error.message)
     } finally {
       isEnriching = false
     }
+  }
+
+  function pointInPolygon(point, ring) {
+    const [x, y] = point
+    let inside = false
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i], [xj, yj] = ring[j]
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside
+    }
+    return inside
+  }
+
+  function mergeBusinesses(existing, incoming) {
+    const seen = new Set(existing.map(b => `${b.lat}|${b.lng}`))
+    return [...existing, ...incoming.filter(b => !seen.has(`${b.lat}|${b.lng}`))]
+  }
+
+  async function polygonContextGeoLookup() {
+    if (!polygonContextMenu) return
+    const coords = polygonContextMenu.coordinates
+    polygonContextMenu = null
+    isEnriching = true
+    try {
+      const results = await enrichCoordinates(coords)
+      businesses = mergeBusinesses(businesses, results)
+    } catch (e) {
+      alert('Geo lookup failed: ' + e.message)
+    } finally {
+      isEnriching = false
+    }
+  }
+
+  async function polygonContextSaveArea() {
+    if (!polygonContextMenu?.inputName?.trim()) return
+    const featureId = polygonContextMenu.featureId
+    try {
+      const resp = await fetch('http://localhost:8000/api/areas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: polygonContextMenu.inputName.trim(), description: polygonContextMenu.inputDescription || '', coordinates: polygonContextMenu.coordinates })
+      })
+      if (!resp.ok) throw new Error('Failed to save area')
+      const saved = await resp.json()
+      drawnPolygonSaves = { ...drawnPolygonSaves, [featureId]: { id: saved.id, name: saved.name } }
+      // Remove the draw feature — it's now represented by the amber area overlay
+      draw.delete(featureId)
+      savePolygons()
+      await loadCustomAreas()
+    } catch (e) {
+      alert('Error saving area: ' + e.message)
+    }
+    polygonContextMenu = null
+  }
+
+  async function polygonContextUpdateArea() {
+    if (!polygonContextMenu?.inputName?.trim()) return
+    const areaId = drawnPolygonSaves[polygonContextMenu.featureId]?.id
+    if (!areaId) return
+    try {
+      const resp = await fetch(`http://localhost:8000/api/areas/${areaId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: polygonContextMenu.inputName.trim(), description: polygonContextMenu.inputDescription || '' })
+      })
+      if (!resp.ok) throw new Error('Failed to update area')
+      drawnPolygonSaves = { ...drawnPolygonSaves, [polygonContextMenu.featureId]: { id: areaId, name: polygonContextMenu.inputName.trim() } }
+      await loadCustomAreas()
+    } catch (e) {
+      alert('Error updating area: ' + e.message)
+    }
+    polygonContextMenu = null
+  }
+
+  async function deleteCustomArea(id) {
+    try {
+      const resp = await fetch(`http://localhost:8000/api/areas/${id}`, { method: 'DELETE' })
+      if (!resp.ok) throw new Error('Failed to delete area')
+      // Remove from session tracking
+      drawnPolygonSaves = Object.fromEntries(Object.entries(drawnPolygonSaves).filter(([, v]) => v.id !== id))
+      await loadCustomAreas()
+    } catch (e) {
+      alert('Error deleting area: ' + e.message)
+    }
+    polygonContextMenu = null
+  }
+
+  async function loadCustomAreas() {
+    try {
+      const resp = await fetch('http://localhost:8000/api/areas')
+      if (!resp.ok) return
+      customAreas = await resp.json()
+    } catch (e) {
+      console.warn('Failed to load custom areas:', e)
+    }
+  }
+
+  async function saveCustomPOI() {
+    if (!poiName.trim() || !poiForm) return
+    try {
+      const resp = await fetch('http://localhost:8000/api/pois', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: poiName.trim(), category: poiCategory, lat: poiForm.lat, lng: poiForm.lng, tags: {} })
+      })
+      if (!resp.ok) throw new Error('Failed to save POI')
+      const poi = await resp.json()
+      businesses = [...businesses, { name: poi.name, lat: poi.lat, lng: poi.lng, type: poi.category, address: '', phone: '', website: '', email: '', source: 'custom', id: poi.id }]
+    } catch (e) {
+      alert('Error saving POI: ' + e.message)
+    }
+    poiForm = null
+  }
+
+  async function deleteCustomPOI(id) {
+    try {
+      const resp = await fetch(`http://localhost:8000/api/pois/${id}`, { method: 'DELETE' })
+      if (!resp.ok) throw new Error('Failed to delete POI')
+      businesses = businesses.filter(b => b.id !== id)
+    } catch (e) {
+      alert('Error deleting POI: ' + e.message)
+    }
+    poiContextMenu = null
+  }
+
+  async function updateCustomPOI() {
+    if (!poiContextMenu?.inputName?.trim()) return
+    try {
+      const resp = await fetch(`http://localhost:8000/api/pois/${poiContextMenu.poiId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: poiContextMenu.inputName.trim(), category: poiContextMenu.inputCategory })
+      })
+      if (!resp.ok) throw new Error('Failed to update POI')
+      businesses = businesses.map(b => b.id === poiContextMenu.poiId
+        ? { ...b, name: poiContextMenu.inputName.trim(), type: poiContextMenu.inputCategory }
+        : b)
+    } catch (e) {
+      alert('Error updating POI: ' + e.message)
+    }
+    poiContextMenu = null
+  }
+
+  async function saveCustomArea() {
+    if (!areaName.trim() || !areaPrompt) return
+    try {
+      const resp = await fetch('http://localhost:8000/api/areas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: areaName.trim(), coordinates: areaPrompt.coordinates })
+      })
+      if (!resp.ok) throw new Error('Failed to save area')
+      await loadCustomAreas()
+    } catch (e) {
+      alert('Error saving area: ' + e.message)
+    }
+    areaPrompt = null
   }
 
   onMount(() => {
@@ -742,6 +919,20 @@
         }
       })
 
+      // Custom POI overlay — amber ring to distinguish from OSM data
+      map.addLayer({
+        id: 'businesses-layer-custom',
+        type: 'circle',
+        source: 'businesses',
+        filter: ['==', ['get', 'source'], 'custom'],
+        paint: {
+          'circle-radius': 9,
+          'circle-color': 'transparent',
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#f59e0b'
+        }
+      })
+
       // Add badge indicators for contact info using text symbols
       // Phone badge (top-right) - #
       map.addLayer({
@@ -885,16 +1076,64 @@
         }
       })
 
+      // Add custom areas source and layers
+      map.addSource('custom-areas', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] }
+      })
+
+      map.addLayer({
+        id: 'custom-areas-fill',
+        type: 'fill',
+        source: 'custom-areas',
+        paint: {
+          'fill-color': '#f59e0b',
+          'fill-opacity': 0.08
+        }
+      })
+
+      map.addLayer({
+        id: 'custom-areas-line',
+        type: 'line',
+        source: 'custom-areas',
+        paint: {
+          'line-color': '#f59e0b',
+          'line-width': 2,
+          'line-opacity': 0.6,
+          'line-dasharray': [3, 2]
+        }
+      })
+
+      map.addLayer({
+        id: 'custom-areas-label',
+        type: 'symbol',
+        source: 'custom-areas',
+        layout: {
+          'text-field': ['get', 'name'],
+          'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+          'text-size': 11,
+          'text-anchor': 'center'
+        },
+        paint: {
+          'text-color': '#f59e0b',
+          'text-halo-color': '#111827',
+          'text-halo-width': 2
+        }
+      })
+
       // Add popup on click - shared handler for all business layers
       const showPopup = (e) => {
         const coordinates = e.features[0].geometry.coordinates.slice()
-        const { name, type, address, phone, website, email } = e.features[0].properties
+        const { name, type, address, phone, website, email, source } = e.features[0].properties
 
         new maplibregl.Popup()
           .setLngLat(coordinates)
           .setHTML(`
             <div class="p-3 min-w-[200px]">
-              <h3 class="font-bold text-gray-900 mb-1">${name}</h3>
+              <div class="flex items-center justify-between mb-1">
+                <h3 class="font-bold text-gray-900">${name}</h3>
+                <span class="text-xs px-1.5 py-0.5 rounded ${source === 'custom' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}">${source === 'custom' ? 'Custom' : 'OSM'}</span>
+              </div>
               <p class="text-xs text-gray-600 mb-2">${type}</p>
               ${address ? `<p class="text-xs text-gray-500 mb-1">${address}</p>` : ''}
               ${phone ? `<p class="text-xs text-gray-700"><strong>Phone:</strong> <a href="tel:${phone}" class="text-blue-600">${phone}</a></p>` : ''}
@@ -923,6 +1162,7 @@
 
       // Add click handlers to all layers
       map.on('click', 'businesses-layer', showPopup)
+      map.on('click', 'businesses-layer-custom', showPopup)
       map.on('click', 'phone-badge', showPopup)
       map.on('click', 'website-badge', showPopup)
       map.on('click', 'email-badge', showPopup)
@@ -942,8 +1182,85 @@
 
       map.on('click', handleMapClick)
 
+      // Close POI form and area popup on map click
+      map.on('click', () => {
+        if (poiForm) poiForm = null
+        if (polygonContextMenu) polygonContextMenu = null
+        if (poiContextMenu) poiContextMenu = null
+      })
+
+      map.on('mouseenter', 'custom-areas-fill', () => { map.getCanvas().style.cursor = 'pointer' })
+      map.on('mouseleave', 'custom-areas-fill', () => { map.getCanvas().style.cursor = '' })
+
+      // Keep context menus anchored to their geographic position
+      map.on('move', () => {
+        if (poiContextMenu?.lngLat) {
+          const pt = map.project(poiContextMenu.lngLat)
+          poiContextMenu.x = pt.x
+          poiContextMenu.y = pt.y
+        }
+        if (polygonContextMenu?.lngLat) {
+          const pt = map.project(polygonContextMenu.lngLat)
+          polygonContextMenu.x = pt.x
+          polygonContextMenu.y = pt.y
+        }
+      })
+
+      // Right-click → check if on drawn polygon or empty map
+      map.on('contextmenu', (e) => {
+        e.preventDefault()
+        const clickPt = [e.lngLat.lng, e.lngLat.lat]
+
+        // Check custom POI markers first
+        const poiFeatures = map.queryRenderedFeatures(e.point, { layers: ['businesses-layer-custom'] })
+        if (poiFeatures.length > 0) {
+          const { name, type, id } = poiFeatures[0].properties
+          poiContextMenu = { poiId: id, poiName: name, poiCategory: type, lngLat: [e.lngLat.lng, e.lngLat.lat], x: e.point.x, y: e.point.y, mode: 'view' }
+          poiForm = null
+          polygonContextMenu = null
+          return
+        }
+
+        // Check saved area overlays first
+        const areaFeatures = map.queryRenderedFeatures(e.point, { layers: ['custom-areas-fill'] })
+        if (areaFeatures.length > 0) {
+          const { id, name, description } = areaFeatures[0].properties
+          polygonContextMenu = { mode: 'saved-area', areaId: id, areaName: name, areaDescription: description || '', lngLat: [e.lngLat.lng, e.lngLat.lat], x: e.point.x, y: e.point.y }
+          poiForm = null
+          return
+        }
+
+        // Check drawn polygons
+        const allDrawn = draw.getAll()
+        let hit = null
+        for (const f of allDrawn.features) {
+          if (f.geometry.type === 'Polygon' && pointInPolygon(clickPt, f.geometry.coordinates[0])) {
+            hit = f
+            break
+          }
+        }
+        if (hit) {
+          const saved = drawnPolygonSaves[hit.id]
+          polygonContextMenu = {
+            featureId: hit.id,
+            coordinates: hit.geometry.coordinates[0].map(([lng, lat]) => ({ lat, lng })),
+            lngLat: [e.lngLat.lng, e.lngLat.lat],
+            x: e.point.x, y: e.point.y,
+            mode: 'menu',
+            inputName: saved?.name || '',
+            inputDescription: ''
+          }
+          poiForm = null
+        } else {
+          poiForm = { lat: e.lngLat.lat, lng: e.lngLat.lng, x: e.point.x, y: e.point.y }
+          poiName = ''
+          poiCategory = BUSINESS_CATEGORIES[0].name
+          polygonContextMenu = null
+        }
+      })
+
       // Change cursor on hover for all layers
-      const layers = ['businesses-layer', 'phone-badge', 'website-badge', 'email-badge']
+      const layers = ['businesses-layer', 'businesses-layer-custom', 'phone-badge', 'website-badge', 'email-badge']
       layers.forEach(layer => {
         map.on('mouseenter', layer, () => {
           map.getCanvas().style.cursor = 'pointer'
@@ -1013,6 +1330,236 @@
     onGoToPolygon={goToPolygon}
     onDeletePolygon={deletePolygon}
   />
+
+  <!-- Custom POI form (right-click) -->
+  {#if poiForm}
+    <div
+      class="absolute bg-gray-900 border-2 border-gray-700 p-3 shadow-lg w-56"
+      style="z-index: 1001; left: {Math.min(poiForm.x, mapContainer?.clientWidth - 240)}px; top: {Math.min(poiForm.y, mapContainer?.clientHeight - 160)}px;"
+    >
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs font-bold text-gray-400 tracking-wide">ADD CUSTOM POI</span>
+        <button onclick={() => poiForm = null} class="text-gray-500 hover:text-gray-300 text-xs">✕</button>
+      </div>
+      <input
+        type="text"
+        bind:value={poiName}
+        placeholder="Name"
+        class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs placeholder-gray-500 focus:border-orange-500 focus:outline-none mb-2"
+        onkeydown={(e) => e.key === 'Enter' && saveCustomPOI()}
+      />
+      <select
+        bind:value={poiCategory}
+        class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs focus:border-orange-500 focus:outline-none mb-2"
+      >
+        {#each BUSINESS_CATEGORIES as cat}
+          <option value={cat.name}>{cat.name}</option>
+        {/each}
+      </select>
+      <button
+        onclick={saveCustomPOI}
+        disabled={!poiName.trim()}
+        class="w-full py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-xs font-medium transition-colors"
+      >SAVE</button>
+    </div>
+  {/if}
+
+  <!-- Custom POI right-click context menu -->
+  {#if poiContextMenu}
+    <div
+      class="absolute bg-gray-900 border-2 border-gray-600 shadow-lg w-52"
+      style="z-index: 1001; left: {Math.min(poiContextMenu.x, mapContainer?.clientWidth - 220)}px; top: {Math.min(poiContextMenu.y, mapContainer?.clientHeight - 200)}px;"
+    >
+      {#if poiContextMenu.mode === 'view'}
+        <div class="px-3 py-2 border-b border-gray-700">
+          <div class="text-xs font-semibold text-gray-200 truncate">{poiContextMenu.poiName}</div>
+          <div class="text-xs text-gray-500 mt-0.5">{poiContextMenu.poiCategory}</div>
+        </div>
+        <button
+          onclick={() => poiContextMenu = { ...poiContextMenu, mode: 'edit', inputName: poiContextMenu.poiName, inputCategory: poiContextMenu.poiCategory }}
+          class="w-full px-3 py-2 text-left text-xs text-amber-400 hover:bg-gray-800 flex items-center gap-2"
+        ><span>✎</span> Edit POI</button>
+        <button
+          onclick={() => deleteCustomPOI(poiContextMenu.poiId)}
+          class="w-full px-3 py-2 text-left text-xs text-red-400 hover:bg-gray-800 flex items-center gap-2"
+        ><span>✕</span> Delete POI</button>
+        <button onclick={() => poiContextMenu = null} class="w-full px-3 py-2 text-left text-xs text-gray-500 hover:bg-gray-800">Cancel</button>
+      {:else if poiContextMenu.mode === 'edit'}
+        <div class="p-3">
+          <div class="text-xs font-bold text-amber-500 tracking-wide mb-2">EDIT POI</div>
+          <input
+            type="text"
+            bind:value={poiContextMenu.inputName}
+            placeholder="Name"
+            class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs placeholder-gray-500 focus:border-amber-500 focus:outline-none mb-2"
+            onkeydown={(e) => { if (e.key === 'Enter') updateCustomPOI() }}
+          />
+          <select
+            bind:value={poiContextMenu.inputCategory}
+            class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs focus:border-amber-500 focus:outline-none mb-2"
+          >
+            {#each BUSINESS_CATEGORIES as cat}
+              <option value={cat.name}>{cat.name}</option>
+            {/each}
+          </select>
+          <div class="flex gap-2">
+            <button
+              onclick={updateCustomPOI}
+              disabled={!poiContextMenu.inputName.trim()}
+              class="flex-1 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-xs font-medium"
+            >SAVE</button>
+            <button onclick={() => poiContextMenu = { ...poiContextMenu, mode: 'view' }} class="px-2 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs">BACK</button>
+          </div>
+        </div>
+      {/if}
+    </div>
+  {/if}
+
+  <!-- Polygon right-click context menu -->
+  {#if polygonContextMenu}
+    {@const saved = drawnPolygonSaves[polygonContextMenu.featureId]}
+    <div
+      class="absolute bg-gray-900 border-2 border-gray-600 shadow-lg w-52"
+      style="z-index: 1001; left: {Math.min(polygonContextMenu.x, mapContainer?.clientWidth - 220)}px; top: {Math.min(polygonContextMenu.y, mapContainer?.clientHeight - 200)}px;"
+    >
+      {#if polygonContextMenu.mode === 'saved-area'}
+        <div class="px-3 py-2 border-b border-gray-700">
+          <div class="text-xs font-semibold text-gray-200 truncate">{polygonContextMenu.areaName}</div>
+          {#if polygonContextMenu.areaDescription}
+            <div class="text-xs text-gray-500 mt-0.5 truncate">{polygonContextMenu.areaDescription}</div>
+          {/if}
+        </div>
+        <button
+          onclick={async () => {
+            const area = customAreas.find(a => a.id === polygonContextMenu.areaId)
+            polygonContextMenu = null
+            if (!area) return
+            isEnriching = true
+            try {
+              const results = await enrichCoordinates(area.coordinates)
+              businesses = mergeBusinesses(businesses, results)
+            } catch (e) {
+              alert('Geo lookup failed: ' + e.message)
+            } finally {
+              isEnriching = false
+            }
+          }}
+          class="w-full px-3 py-2 text-left text-xs text-blue-400 hover:bg-gray-800 flex items-center gap-2"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Geo Lookup
+        </button>
+        <button
+          onclick={() => polygonContextMenu = { ...polygonContextMenu, mode: 'saved-area-edit', inputName: polygonContextMenu.areaName, inputDescription: polygonContextMenu.areaDescription }}
+          class="w-full px-3 py-2 text-left text-xs text-amber-400 hover:bg-gray-800 flex items-center gap-2"
+        >
+          <span>✎</span> Edit Area
+        </button>
+        <button
+          onclick={() => deleteCustomArea(polygonContextMenu.areaId)}
+          class="w-full px-3 py-2 text-left text-xs text-red-400 hover:bg-gray-800 flex items-center gap-2"
+        >
+          <span>✕</span> Delete Area
+        </button>
+        <button onclick={() => polygonContextMenu = null} class="w-full px-3 py-2 text-left text-xs text-gray-500 hover:bg-gray-800">Cancel</button>
+      {:else if polygonContextMenu.mode === 'saved-area-edit'}
+        <div class="p-3">
+          <div class="text-xs font-bold text-amber-500 tracking-wide mb-2">EDIT AREA</div>
+          <input
+            type="text"
+            bind:value={polygonContextMenu.inputName}
+            placeholder="Name"
+            class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs placeholder-gray-500 focus:border-amber-500 focus:outline-none mb-2"
+            onkeydown={async (e) => {
+              if (e.key === 'Enter') {
+                await fetch(`http://localhost:8000/api/areas/${polygonContextMenu.areaId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: polygonContextMenu.inputName.trim(), description: polygonContextMenu.inputDescription || '' }) })
+                await loadCustomAreas()
+                polygonContextMenu = null
+              }
+            }}
+          />
+          <input
+            type="text"
+            bind:value={polygonContextMenu.inputDescription}
+            placeholder="Description (optional)"
+            class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs placeholder-gray-500 focus:border-amber-500 focus:outline-none mb-2"
+          />
+          <div class="flex gap-2">
+            <button
+              onclick={async () => {
+                if (!polygonContextMenu.inputName.trim()) return
+                try {
+                  const resp = await fetch(`http://localhost:8000/api/areas/${polygonContextMenu.areaId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: polygonContextMenu.inputName.trim(), description: polygonContextMenu.inputDescription || '' }) })
+                  if (!resp.ok) throw new Error('Failed to update area')
+                  await loadCustomAreas()
+                } catch (e) { alert('Error: ' + e.message) }
+                polygonContextMenu = null
+              }}
+              disabled={!polygonContextMenu.inputName.trim()}
+              class="flex-1 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-xs font-medium"
+            >SAVE</button>
+            <button onclick={() => polygonContextMenu = { ...polygonContextMenu, mode: 'saved-area' }} class="px-2 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs">BACK</button>
+          </div>
+        </div>
+      {:else if polygonContextMenu.mode === 'menu'}
+        <button
+          onclick={polygonContextGeoLookup}
+          class="w-full px-3 py-2 text-left text-xs text-gray-200 hover:bg-gray-800 flex items-center gap-2"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Geo Lookup
+        </button>
+        <div class="border-t border-gray-700"></div>
+        {#if saved}
+          <button
+            onclick={() => polygonContextMenu = { ...polygonContextMenu, mode: 'edit', inputName: saved.name, inputDescription: '' }}
+            class="w-full px-3 py-2 text-left text-xs text-amber-400 hover:bg-gray-800 flex items-center gap-2"
+          >
+            <span>✎</span> Edit Area
+          </button>
+          <button
+            onclick={() => deleteCustomArea(saved.id)}
+            class="w-full px-3 py-2 text-left text-xs text-red-400 hover:bg-gray-800 flex items-center gap-2"
+          >
+            <span>✕</span> Delete Area
+          </button>
+        {:else}
+          <button
+            onclick={() => polygonContextMenu = { ...polygonContextMenu, mode: 'save', inputName: '', inputDescription: '' }}
+            class="w-full px-3 py-2 text-left text-xs text-amber-400 hover:bg-gray-800 flex items-center gap-2"
+          >
+            <span>+</span> Save Area
+          </button>
+        {/if}
+        <div class="border-t border-gray-700"></div>
+        <button onclick={() => polygonContextMenu = null} class="w-full px-3 py-2 text-left text-xs text-gray-500 hover:bg-gray-800">Cancel</button>
+      {:else if polygonContextMenu.mode === 'save' || polygonContextMenu.mode === 'edit'}
+        <div class="p-3">
+          <div class="text-xs font-bold text-amber-500 tracking-wide mb-2">{polygonContextMenu.mode === 'save' ? 'SAVE AREA' : 'EDIT AREA'}</div>
+          <input
+            type="text"
+            bind:value={polygonContextMenu.inputName}
+            placeholder="Name"
+            class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs placeholder-gray-500 focus:border-amber-500 focus:outline-none mb-2"
+            onkeydown={(e) => e.key === 'Enter' && (polygonContextMenu.mode === 'save' ? polygonContextSaveArea() : polygonContextUpdateArea())}
+          />
+          <input
+            type="text"
+            bind:value={polygonContextMenu.inputDescription}
+            placeholder="Description (optional)"
+            class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs placeholder-gray-500 focus:border-amber-500 focus:outline-none mb-2"
+          />
+          <div class="flex gap-2">
+            <button
+              onclick={polygonContextMenu.mode === 'save' ? polygonContextSaveArea : polygonContextUpdateArea}
+              disabled={!polygonContextMenu.inputName.trim()}
+              class="flex-1 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-xs font-medium"
+            >SAVE</button>
+            <button onclick={() => polygonContextMenu = { ...polygonContextMenu, mode: 'menu' }} class="px-2 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs">BACK</button>
+          </div>
+        </div>
+      {/if}
+    </div>
+  {/if}
+
 
   <!-- Category Filter -->
   <div class="absolute bottom-6 right-6" style="z-index: 1000; max-width: 280px;">

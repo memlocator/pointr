@@ -6,8 +6,8 @@ WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Copy dependency files
-COPY enrichment/pyproject.toml enrichment/uv.lock ./
-COPY proto/enrichment.proto ./
+COPY geo/pyproject.toml geo/uv.lock ./
+COPY proto/geo.proto ./
 
 # Install dependencies
 RUN uv sync --frozen
@@ -17,11 +17,11 @@ RUN uv run python -m grpc_tools.protoc \
     -I. \
     --python_out=. \
     --grpc_python_out=. \
-    enrichment.proto
+    geo.proto
 
 # Copy application code
-COPY enrichment/main.py ./
-COPY enrichment/dev_server.py ./
+COPY geo/main.py ./
+COPY geo/dev_server.py ./
 
 # Expose gRPC port
 EXPOSE 50051

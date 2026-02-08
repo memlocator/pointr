@@ -71,16 +71,14 @@
       title={isEnriching ? 'Enriching...' : 'Enrich Polygons'}
     >
       {#if isEnriching}
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="text-orange-500 animate-spin">
-          <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="2" stroke-dasharray="8 4" fill="none"/>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="animate-spin">
+          <circle cx="11" cy="11" r="8" stroke-dasharray="28 14"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
         </svg>
       {:else}
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="text-white">
-          <circle cx="8" cy="8" r="2" fill="currentColor"/>
-          <circle cx="8" cy="3" r="1.5" fill="currentColor"/>
-          <circle cx="13" cy="8" r="1.5" fill="currentColor"/>
-          <circle cx="8" cy="13" r="1.5" fill="currentColor"/>
-          <circle cx="3" cy="8" r="1.5" fill="currentColor"/>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
         </svg>
       {/if}
     </button>
