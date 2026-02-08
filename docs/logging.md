@@ -22,6 +22,7 @@ Promtail discovers Docker containers and forwards their logs to Loki. Grafana is
 Grafana also provisions a basic “Docker Logs” dashboard with:
 - Log volume by container
 - Log stream filtered by container
+- Requests by user + endpoint (parsed from backend request logs)
 
 ## Quick Start
 
@@ -33,6 +34,8 @@ docker compose up --build
 
 - All logs: `{job="docker"}`
 - Single container (by id): `{job="docker", container_id="..."}`
+- Requests for a user: `{job="docker", user="alice"}`
+- Requests to an endpoint: `{job="docker", path="/api/route"}`
 
 ## Files
 

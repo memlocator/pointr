@@ -2,7 +2,7 @@
   "uid": "docker-logs",
   "title": "Docker Logs",
   "schemaVersion": 38,
-  "version": 1,
+  "version": 2,
   "timezone": "browser",
   "time": {
     "from": "now-1h",
@@ -19,6 +19,38 @@
         },
         "query": {
           "query": "label_values(container_id)"
+        },
+        "refresh": 1,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "sort": 1
+      },
+      {
+        "name": "user",
+        "type": "query",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "query": {
+          "query": "label_values(user)"
+        },
+        "refresh": 1,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "sort": 1
+      },
+      {
+        "name": "path",
+        "type": "query",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "query": {
+          "query": "label_values(path)"
         },
         "refresh": 1,
         "includeAll": true,
@@ -47,11 +79,74 @@
         "x": 0,
         "y": 0,
         "w": 24,
-        "h": 8
+        "h": 7
       },
       "fieldConfig": {
         "defaults": {
           "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Requests by User + Endpoint",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum by (user, path, method, status) (count_over_time({job=\"docker\", user=~\"$user\", path=~\"$path\"} [15m]))",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 24,
+        "h": 7
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Value",
+            "desc": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Requests by Endpoint (rate)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum by (path, method) (rate({job=\"docker\", user=~\"$user\", path=~\"$path\"}[1m]))",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "req/s"
         },
         "overrides": []
       },
@@ -72,15 +167,15 @@
       },
       "targets": [
         {
-          "expr": "{job=\"docker\", container_id=~\"$container\"}",
+          "expr": "{job=\"docker\", container_id=~\"$container\", user=~\"$user\", path=~\"$path\"}",
           "refId": "A"
         }
       ],
       "gridPos": {
         "x": 0,
-        "y": 8,
+        "y": 21,
         "w": 24,
-        "h": 14
+        "h": 12
       },
       "options": {
         "showTime": true,

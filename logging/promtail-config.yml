@@ -15,6 +15,15 @@ scrape_configs:
         labels:
           job: docker
           __path__: /var/lib/docker/containers/*/*-json.log
+    pipeline_stages:
+      - regex:
+          expression: 'REQ user="(?P<user>[^"]*)" method=(?P<method>\\S+) path="(?P<path>[^"]+)" status=(?P<status>\\d+) success=(?P<success>\\w+) duration_ms=(?P<duration_ms>\\d+)'
+      - labels:
+          user:
+          method:
+          path:
+          status:
+          success:
     relabel_configs:
       - source_labels: [__path__]
         regex: ".*/([0-9a-f]{12,64})/.*"
