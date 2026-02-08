@@ -30,6 +30,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - GEO_DB_URL=${GEO_DB_URL}
+      - GEO_ADDITIONAL_DBS=${GEO_ADDITIONAL_DBS:-[]}
     depends_on:
       postgis:
         condition: service_healthy
@@ -71,6 +72,7 @@ services:
       - ./backend/pyproject.toml:/app/pyproject.toml
     environment:
       - PYTHONUNBUFFERED=1
+      - GEO_ADDITIONAL_DBS=${GEO_ADDITIONAL_DBS:-[]}
     depends_on:
       - geo
       - recon

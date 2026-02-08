@@ -1,43 +1,56 @@
-# Svelte + Vite
+# Frontend
 
-This template should help get you started developing with Svelte in Vite.
+Svelte 5 single-page application providing the map interface, list views, and recon UI.
 
-## Recommended IDE Setup
+## Environment
 
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode).
+- **Node**: via Docker / local install
+- **Package manager**: npm
+- **Framework**: Svelte 5 + Vite
+- **Port**: 5173
 
-## Need an official Svelte framework?
+## Views
 
-Check out [SvelteKit](https://github.com/sveltejs/kit#readme), which is also powered by Vite. Deploy anywhere with its serverless-first approach and adapt to various platforms, with out of the box support for TypeScript, SCSS, and Less, and easily-added support for mdsvex, GraphQL, PostCSS, Tailwind CSS, and more.
+| View | Description |
+|---|---|
+| **Map** | Interactive map with drawing tools, POI discovery, custom areas, and routing |
+| **List** | Tabular view of discovered businesses with search, filtering, sorting, and export |
+| **Contacts** | Filtered view showing only businesses that have contact information |
+| **Recon** | Domain reconnaissance interface with live streaming results |
 
-## Technical considerations
+## Key Components
 
-**Why use this over SvelteKit?**
+| Component | Description |
+|---|---|
+| `Topbar` | Navigation bar, view switcher, business counter, API health indicator |
+| `Map` | MapLibre GL map; polygon/circle drawing; business markers; heatmap; routing layer |
+| `DrawingToolbar` | Polygon, rectangle, and circle drawing controls |
+| `LocationSearchBar` | Nominatim geocoding with autocomplete |
+| `RoutingPanel` | Multi-stop route planning with GeoJSON export/import |
+| `CategoryFilter` | Toggle visibility by business category |
+| `ListView` / `DataTable` | Sortable, filterable table with CSV and JSON export |
+| `ReconView` / `ReconResults` | Domain recon UI with streaming log and structured results |
 
-- It brings its own routing solution which might not be preferable for some users.
-- It is first and foremost a framework that just happens to use Vite under the hood, not a Vite app.
+## Map Features
 
-This template contains as little as possible to get started with Vite + Svelte, while taking into account the developer experience with regards to HMR and intellisense. It demonstrates capabilities on par with the other `create-vite` templates and is a good starting point for beginners dipping their toes into a Vite + Svelte project.
+- Draw polygons, rectangles, and circles to define search areas
+- Right-click to add custom POIs or save drawn areas to the database
+- Custom POIs appear with an amber ring; custom areas as dashed amber overlays
+- Business markers are color-coded by category
+- Heatmap toggle per category
+- Routing panel for multi-stop driving directions via OSRM
 
-Should you later need the extended capabilities and extensibility provided by SvelteKit, the template has been structured similarly to SvelteKit so that it is easy to migrate.
+## Development
 
-**Why include `.vscode/extensions.json`?**
-
-Other templates indirectly recommend extensions via the README, but this file allows VS Code to prompt the user to install the recommended extension upon opening the project.
-
-**Why enable `checkJs` in the JS template?**
-
-It is likely that most cases of changing variable types in runtime are likely to be accidental, rather than deliberate. This provides advanced typechecking out of the box. Should you like to take advantage of the dynamically-typed nature of JavaScript, it is trivial to change the configuration.
-
-**Why is HMR not preserving my local component state?**
-
-HMR state preservation comes with a number of gotchas! It has been disabled by default in both `svelte-hmr` and `@sveltejs/vite-plugin-svelte` due to its often surprising behavior. You can read the details [here](https://github.com/sveltejs/svelte-hmr/tree/master/packages/svelte-hmr#preservation-of-local-state).
-
-If you have state that's important to retain within a component, consider creating an external store which would not be replaced by HMR.
-
-```js
-// store.js
-// An extremely simple external store
-import { writable } from 'svelte/store'
-export default writable(0)
+```bash
+cd frontend
+npm install
+npm run dev
 ```
+
+With Docker:
+```bash
+docker compose up frontend
+```
+
+Source files are mounted as volumes so Vite HMR works without rebuilding the image.

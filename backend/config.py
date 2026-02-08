@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: list[str] = ["http://localhost:5173"]
 
+    # Additional PostGIS sources (same JSON as GEO_ADDITIONAL_DBS)
+    geo_additional_dbs: str = "[]"
+
     # Rate Limiting
     nominatim_rate_limit: int = 60
 

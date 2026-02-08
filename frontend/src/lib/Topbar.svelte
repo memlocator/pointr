@@ -32,11 +32,17 @@
 
   function getStatusColor(status) {
     if (!status) return 'bg-gray-500'
-    if (status === 'healthy') return 'bg-green-500'
+    if (status === 'healthy' || status === 'online') return 'bg-green-500'
     if (status === 'degraded') return 'bg-yellow-500'
-    if (status === 'unhealthy') return 'bg-red-500'
-    if (status === 'offline') return 'bg-red-500'
+    if (status === 'unhealthy' || status === 'error' || status === 'offline') return 'bg-red-500'
     return 'bg-gray-500'
+  }
+
+  function getStatusText(status) {
+    if (!status) return 'text-gray-500'
+    if (status === 'healthy' || status === 'online') return 'text-green-500'
+    if (status === 'degraded') return 'text-yellow-500'
+    return 'text-red-500'
   }
 
   // Run initial health check
@@ -163,6 +169,25 @@
               {/if}
             {/each}
           </div>
+          {#if healthData.datasources?.length > 0}
+            <div class="px-4 py-2 border-t border-gray-700">
+              <div class="text-xs font-bold text-gray-400 tracking-wide">DATASOURCES</div>
+            </div>
+            <div class="p-2">
+              {#each healthData.datasources as ds}
+                <div class="flex items-center justify-between px-2 py-2 hover:bg-gray-800 transition-colors">
+                  <div class="flex items-center gap-2">
+                    <div class={`w-2 h-2 rounded-full ${getStatusColor(ds.status)}`}></div>
+                    <span class="text-xs font-medium text-gray-300">{ds.name}</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs text-gray-500">{ds.message || ''}</span>
+                    <span class={`text-xs font-mono ${getStatusText(ds.status)}`}>{(ds.status || 'unknown').toUpperCase()}</span>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
         </div>
       {/if}
     </div>

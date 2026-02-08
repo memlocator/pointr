@@ -1,98 +1,73 @@
-# Reconnaissance Service
+# Recon Service
 
-gRPC microservice for performing domain reconnaissance and OSINT gathering.
-
-## Features
-
-Comprehensive domain reconnaissance including:
-- **DNS Records**: A, AAAA, MX, TXT, NS, CNAME records
-- **SSL Certificates**: Certificate transparency logs from crt.sh
-- **Subdomain Enumeration**: Discover subdomains from various sources
-- **Security Headers**: HTTP security header analysis
-- **WHOIS Data**: Domain registration information
-- **ASN Information**: Autonomous System Number and network details
-
-## Modes
-
-### Silent Mode
-Passive reconnaissance only - no direct HTTP requests to target domain:
-- DNS queries
-- SSL certificate transparency logs
-- WHOIS lookups
-- ASN information
-
-### Full Mode
-Includes all silent mode features plus:
-- Security header analysis (requires HTTP request)
-- Additional active probing
+gRPC microservice for domain reconnaissance and OSINT gathering.
 
 ## Environment
 
 - **Python**: 3.14
-- **Package Manager**: uv
+- **Package manager**: uv
 - **Framework**: gRPC
 - **Port**: 50052
-- **Dependencies**: See `pyproject.toml`
+
+## Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `APP_NAME` | `Pointr` | Application name |
+| `APP_VERSION` | `1.0` | Application version |
+| `RECON_PORT` | `50052` | gRPC listen port |
+| `MAX_WORKERS` | `5` | Thread pool size for parallel domain processing |
+| `CRT_SH_API_URL` | `https://crt.sh/` | Certificate transparency log endpoint |
+| `CYMRU_ASN_DOMAIN` | `origin.asn.cymru.com` | Team Cymru ASN lookup domain |
+| `CRT_SH_RATE_LIMIT` | `300` | Requests per minute to crt.sh |
+
+## Modes
+
+### Silent (passive)
+No direct contact with the target domain:
+- DNS records (A, AAAA, MX, NS, TXT, SOA)
+- SSL certificates from crt.sh
+- Subdomain enumeration from certificate SANs
+- WHOIS registration data
+- ASN / BGP information
+- DMARC record
+- DNS blocklist checks
+
+### Full (active)
+Everything in silent mode plus:
+- HTTP security header analysis (makes a request to the target)
+
+## gRPC API
+
+Defined in `proto/recon.proto`.
+
+| Method | Description |
+|---|---|
+| `Health` | Returns service status without external calls |
+| `RunRecon` | Synchronous recon; returns when all domains complete |
+| `RunReconStream` | Streaming recon; emits `LOG`, `RESULT`, and `COMPLETE` updates in real time |
+
+Domains are processed in parallel (up to `MAX_WORKERS` concurrently).
+
+## Data Collected
+
+| Category | Source | Notes |
+|---|---|---|
+| DNS records | System resolvers | A, AAAA, MX, NS, TXT, SOA |
+| SSL certificates | crt.sh | Up to 10 most recent |
+| Subdomains | crt.sh SANs | Up to 50 |
+| Security headers | Direct HTTP | Full mode only |
+| WHOIS | python-whois | Registrar, dates, nameservers |
+| ASN / BGP | Team Cymru, RIPEstat, BGPView, PeeringDB | Multiple fallback sources |
+| DMARC | DNS (`_dmarc.<domain>`) | Policy, subdomain policy, RUA/RUF URIs |
+| Blocklist status | Spamhaus ZEN, Spamhaus DBL, URIBL, SURBL | TCP-based RBL lookups |
 
 ## Development
 
-### Hot Reload
-
-The service includes automatic hot reload in development mode using `watchdog`. Any changes to `.py` files will automatically restart the server.
-
-### Running Locally
-
-With uv:
 ```bash
 cd recon
 uv sync
 uv run python main.py
 ```
 
-With Docker:
-```bash
-docker-compose up recon
-```
-
-The Docker setup mounts source files as volumes, enabling hot reload without rebuilding the container.
-
-## API
-
-### RunRecon
-
-Batch reconnaissance on multiple domains.
-
-**Request**: `ReconRequest`
-- `domains`: Array of domain names to recon
-- `silent_mode`: Boolean for passive-only reconnaissance
-
-**Response**: `ReconResponse`
-- `results`: Array of `DomainRecon` objects
-
-### RunReconStream
-
-Real-time streaming reconnaissance with live progress updates.
-
-**Request**: `ReconRequest`
-- `domains`: Array of domain names to recon
-- `silent_mode`: Boolean for passive-only reconnaissance
-
-**Response Stream**: `ReconUpdate`
-- `type`: LOG or RESULT
-- `message`: Progress log message
-- `result`: Completed domain reconnaissance result
-
-Domains are processed in parallel with real-time streaming updates.
-
-## Configuration
-
-Set via environment variables or `config.py`:
-- `RECON_PORT`: gRPC server port (default: 50052)
-
-## Data Sources
-
-- DNS: Standard DNS resolvers
-- SSL Certificates: crt.sh certificate transparency logs
-- WHOIS: python-whois library
-- ASN: DNS-based ASN lookups
-- Subdomains: Multiple enumeration techniques
+The Docker setup mounts source files as volumes. The service uses `watchdog` to auto-restart on `.py` file changes.

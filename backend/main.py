@@ -392,6 +392,36 @@ async def health_check():
         }
         health_status["status"] = "degraded"
 
+    # Probe additional PostGIS datasources via TCP
+    import socket
+    from urllib.parse import urlparse as _urlparse
+
+    datasources = [
+        {
+            "name": "Primary (PostGIS)",
+            "status": "online" if health_status["services"]["geo"]["status"] == "healthy" else "error",
+            "message": health_status["services"]["geo"]["message"]
+        }
+    ]
+
+    try:
+        additional = json.loads(settings.geo_additional_dbs)
+    except Exception:
+        additional = []
+
+    for db in additional:
+        try:
+            parsed = _urlparse(db.get("url", ""))
+            host = parsed.hostname or "localhost"
+            port = parsed.port or 5432
+            sock = socket.create_connection((host, port), timeout=2.0)
+            sock.close()
+            datasources.append({"name": db["name"], "status": "online", "message": "reachable"})
+        except Exception as e:
+            datasources.append({"name": db.get("name", "unknown"), "status": "error", "message": str(e)})
+
+    health_status["datasources"] = datasources
+
     return health_status
 
 @app.post("/api/enrich", response_model=EnrichmentResponse, tags=["geo"], summary="Enrich polygon with OSM data")

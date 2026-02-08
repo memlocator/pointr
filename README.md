@@ -66,19 +66,19 @@ pointr/
 ├── proto/
 │   ├── geo.proto             # Geo data service (enrichment + custom data CRUD)
 │   └── recon.proto           # Network recon service
-├── backend/                  # FastAPI REST API
+├── backend/                  # FastAPI REST API — [README](backend/README.md)
 │   ├── main.py
 │   ├── config.py
 │   └── Dockerfile
-├── geo/                      # gRPC geo data service
+├── geo/                      # gRPC geo data service — [README](geo/README.md)
 │   ├── main.py               # Overpass queries + PostGIS CRUD
 │   ├── config.py
 │   └── Dockerfile
-├── recon/                    # gRPC recon service
+├── recon/                    # gRPC recon service — [README](recon/README.md)
 │   ├── main.py
 │   ├── config.py
 │   └── Dockerfile
-├── frontend/                 # Svelte 5 + MapLibre UI
+├── frontend/                 # Svelte 5 + MapLibre UI — [README](frontend/README.md)
 │   └── src/
 ├── docker-compose.yml
 ├── .env                      # Secrets (gitignored)
@@ -114,6 +114,8 @@ GEO_DB_URL=postgresql://pointr:changeme@postgis:5432/pointr
 ```
 
 To rebrand, update `app_name` in `backend/config.py` and `recon/config.py`.
+
+See [docs/data-sources.md](docs/data-sources.md) for how to add additional PostGIS databases as enrichment sources.
 
 ## Database
 

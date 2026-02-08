@@ -13,6 +13,7 @@ from config import settings
 
 
 _pool: ConnectionPool | None = None
+_additional_pools: dict[str, ConnectionPool] = {}
 
 
 def get_pool() -> ConnectionPool:
@@ -25,6 +26,22 @@ def get_pool() -> ConnectionPool:
             kwargs={"row_factory": dict_row}
         )
     return _pool
+
+
+def init_additional_pools():
+    """Create connection pools for each configured additional PostGIS source."""
+    global _additional_pools
+    for db in settings.additional_dbs:
+        try:
+            _additional_pools[db.name] = ConnectionPool(
+                conninfo=db.url,
+                min_size=1,
+                max_size=5,
+                kwargs={"row_factory": dict_row}
+            )
+            print(f"Connected to additional DB: {db.name}")
+        except Exception as e:
+            print(f"Failed to connect to additional DB '{db.name}': {e}")
 
 
 def init_db():
@@ -113,8 +130,16 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
             print(f"PostGIS query error (areas): {e}")
             area_names = []
 
-        # Blend: custom first so they appear at top of list
-        all_businesses = custom_businesses + osm_businesses
+        # Query additional PostGIS sources
+        additional_businesses = []
+        for db in settings.additional_dbs:
+            try:
+                additional_businesses += self._get_additional_db_pois_in_polygon(db, coords)
+            except Exception as e:
+                print(f"Additional DB '{db.name}' query error: {e}")
+
+        # Blend: custom first, then additional sources, then OSM
+        all_businesses = custom_businesses + additional_businesses + osm_businesses
 
         if error:
             print(f"Enrichment error: {error}")
@@ -399,6 +424,49 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                 source='custom',
                 id=row['id'],
                 description=row['description']
+            )
+            for row in rows
+        ]
+
+    def _get_additional_db_pois_in_polygon(self, db, coords) -> list:
+        """Query an additional PostGIS source for features within the polygon."""
+        from config import AdditionalDB
+        pool = _additional_pools.get(db.name)
+        if pool is None:
+            return []
+
+        wkt_coords = ", ".join(f"{lng} {lat}" for lng, lat in coords)
+        polygon_wkt = f"POLYGON(({wkt_coords}))"
+
+        # Build SELECT with optional columns (table/column names are operator-supplied config)
+        select_parts = [
+            f"{db.name_col} AS name",
+            f"ST_Y({db.geom_col}) AS lat",
+            f"ST_X({db.geom_col}) AS lng",
+        ]
+        if db.category_col:
+            select_parts.append(f"{db.category_col} AS category")
+        if db.description_col:
+            select_parts.append(f"{db.description_col} AS description")
+
+        query = f"""
+            SELECT {', '.join(select_parts)}
+            FROM {db.table}
+            WHERE ST_Within({db.geom_col}, ST_GeomFromText(%s, 4326))
+        """
+
+        with pool.connection() as conn:
+            rows = conn.execute(query, (polygon_wkt,)).fetchall()
+
+        return [
+            geo_pb2.Business(
+                name=row['name'] or 'Unnamed',
+                lat=row['lat'],
+                lng=row['lng'],
+                type=row.get('category') or 'unknown',
+                description=row.get('description') or '',
+                source=db.name,
+                address='', phone='', website='', email='', id=''
             )
             for row in rows
         ]
@@ -740,6 +808,7 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
 def serve():
     """Start the gRPC server"""
     init_db()
+    init_additional_pools()
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     geo_pb2_grpc.add_GeoDataServiceServicer_to_server(
         GeoDataServicer(), server
