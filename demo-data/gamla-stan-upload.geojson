@@ -1,0 +1,85 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0707, 59.3250]},
+      "properties": {
+        "name": "Stortorget Cafe",
+        "category": "Food & Dining",
+        "phone": "+46-8-555-0101",
+        "website": "https://stortorget-cafe.example"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0722, 59.3244]},
+      "properties": {
+        "name": "Gamla Stan Antiques",
+        "category": "Retail",
+        "phone": "+46-8-555-0102",
+        "website": "https://gamlestan-antiques.example"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0736, 59.3259]},
+      "properties": {
+        "name": "Skeppsbro Deli",
+        "category": "Food & Dining",
+        "phone": "+46-8-555-0103",
+        "website": "https://skeppsbro-deli.example"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0711, 59.3237]},
+      "properties": {
+        "name": "Vasterlanggatan Books",
+        "category": "Retail",
+        "phone": "+46-8-555-0104",
+        "website": "https://vasterlanggatan-books.example"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0689, 59.3248]},
+      "properties": {
+        "name": "Riddarholmen Photo",
+        "category": "Retail",
+        "phone": "+46-8-555-0105",
+        "website": "https://riddarholmen-photo.example"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0701, 59.3264]},
+      "properties": {
+        "name": "Slottsbacken Visitor Info",
+        "category": "Government",
+        "phone": "+46-8-555-0106",
+        "website": "https://slottsbacken-info.example"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0747, 59.3249]},
+      "properties": {
+        "name": "Skeppsbron Wellness",
+        "category": "Healthcare",
+        "phone": "+46-8-555-0107",
+        "website": "https://skeppsbron-wellness.example"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0728, 59.3268]},
+      "properties": {
+        "name": "Kopmanbrinken Bakery",
+        "category": "Food & Dining",
+        "phone": "+46-8-555-0108",
+        "website": "https://kopmanbrinken-bakery.example"
+      }
+    }
+  ]
+}

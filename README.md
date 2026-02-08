@@ -117,6 +117,10 @@ To rebrand, update `app_name` in `backend/config.py` and `recon/config.py`.
 
 See [docs/data-sources.md](docs/data-sources.md) for how to add additional PostGIS databases as enrichment sources.
 
+See [docs/data-upload.md](docs/data-upload.md) for how to upload GeoJSON datasources and the required format.
+
+Demo upload dataset: [demo-data/gamla-stan-upload.geojson](demo-data/gamla-stan-upload.geojson)
+
 See [docs/proto-grpc.md](docs/proto-grpc.md) for how to work with the gRPC service definitions.
 
 ## Database
