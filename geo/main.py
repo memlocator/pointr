@@ -427,6 +427,36 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
         except Exception as e:
             return geo_pb2.ListCustomAreasResponse(error=str(e))
 
+    def ListIntersectingAreas(self, request, context):
+        try:
+            coords = [(c.lng, c.lat) for c in request.coordinates]
+            if len(coords) < 3:
+                return geo_pb2.ListCustomAreasResponse(areas=[], error='')
+            wkt_coords = ", ".join(f"{lng} {lat}" for lng, lat in coords)
+            polygon_wkt = f"POLYGON(({wkt_coords}))"
+            with get_pool().connection() as conn:
+                rows = conn.execute("""
+                    SELECT id::text, name, description,
+                           metadata::text AS metadata_json,
+                           ST_AsText(geom) AS geom_wkt
+                    FROM custom_areas
+                    WHERE ST_Intersects(geom, ST_GeomFromText(%s, 4326))
+                    ORDER BY created_at DESC
+                """, (polygon_wkt,)).fetchall()
+            areas = [
+                geo_pb2.CustomAreaResponse(
+                    id=r['id'],
+                    name=r['name'],
+                    description=r['description'],
+                    coordinates=self._wkt_to_coords(r['geom_wkt']),
+                    metadata_json=r['metadata_json']
+                )
+                for r in rows
+            ]
+            return geo_pb2.ListCustomAreasResponse(areas=areas, error='')
+        except Exception as e:
+            return geo_pb2.ListCustomAreasResponse(error=str(e))
+
     def AddRoute(self, request, context):
         try:
             with get_pool().connection() as conn:

@@ -15,6 +15,7 @@ service GeoDataService {
   rpc UpdateCustomArea(UpdateCustomAreaRequest) returns (CustomAreaResponse);
   rpc DeleteCustomArea(DeleteCustomAreaRequest) returns (DeleteResponse);
   rpc ListCustomAreas(ListCustomAreasRequest) returns (ListCustomAreasResponse);
+  rpc ListIntersectingAreas(PolygonRequest) returns (ListCustomAreasResponse);
 
   rpc AddRoute(AddRouteRequest) returns (RouteResponse);
   rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse);

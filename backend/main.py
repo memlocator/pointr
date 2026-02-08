@@ -1004,6 +1004,39 @@ async def list_custom_areas():
     except grpc.RpcError as e:
         raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
 
+@app.post("/api/areas/intersect", response_model=list[CustomAreaResponse], tags=["custom-areas"], summary="List custom areas intersecting polygon")
+async def list_intersecting_custom_areas(request: PolygonRequest):
+    """Return only custom areas that intersect the provided polygon."""
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+
+            proto_coords = [
+                geo_pb2.Coordinate(lat=coord.lat, lng=coord.lng)
+                for coord in request.coordinates
+            ]
+
+            response = stub.ListIntersectingAreas(
+                geo_pb2.PolygonRequest(coordinates=proto_coords, sources=request.sources)
+            )
+
+            if response.error:
+                raise HTTPException(status_code=500, detail=response.error)
+
+            return [
+                CustomAreaResponse(
+                    id=a.id,
+                    name=a.name,
+                    description=a.description,
+                    coordinates=[{"lat": c.lat, "lng": c.lng} for c in a.coordinates],
+                    metadata_json=a.metadata_json,
+                    error=a.error,
+                )
+                for a in response.areas
+            ]
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
 
 @app.patch("/api/areas/{area_id}", response_model=CustomAreaResponse, tags=["custom-areas"], summary="Update custom area")
 async def update_custom_area(area_id: str, request: UpdateCustomAreaRequest):

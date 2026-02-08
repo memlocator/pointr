@@ -84,6 +84,11 @@ class GeoDataServiceStub(object):
                 request_serializer=geo__pb2.ListCustomAreasRequest.SerializeToString,
                 response_deserializer=geo__pb2.ListCustomAreasResponse.FromString,
                 _registered_method=True)
+        self.ListIntersectingAreas = channel.unary_unary(
+                '/geo.GeoDataService/ListIntersectingAreas',
+                request_serializer=geo__pb2.PolygonRequest.SerializeToString,
+                response_deserializer=geo__pb2.ListCustomAreasResponse.FromString,
+                _registered_method=True)
         self.AddRoute = channel.unary_unary(
                 '/geo.GeoDataService/AddRoute',
                 request_serializer=geo__pb2.AddRouteRequest.SerializeToString,
@@ -179,6 +184,12 @@ class GeoDataServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListIntersectingAreas(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def AddRoute(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -268,6 +279,11 @@ def add_GeoDataServiceServicer_to_server(servicer, server):
             'ListCustomAreas': grpc.unary_unary_rpc_method_handler(
                     servicer.ListCustomAreas,
                     request_deserializer=geo__pb2.ListCustomAreasRequest.FromString,
+                    response_serializer=geo__pb2.ListCustomAreasResponse.SerializeToString,
+            ),
+            'ListIntersectingAreas': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListIntersectingAreas,
+                    request_deserializer=geo__pb2.PolygonRequest.FromString,
                     response_serializer=geo__pb2.ListCustomAreasResponse.SerializeToString,
             ),
             'AddRoute': grpc.unary_unary_rpc_method_handler(
@@ -570,6 +586,33 @@ class GeoDataService(object):
             target,
             '/geo.GeoDataService/ListCustomAreas',
             geo__pb2.ListCustomAreasRequest.SerializeToString,
+            geo__pb2.ListCustomAreasResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListIntersectingAreas(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/geo.GeoDataService/ListIntersectingAreas',
+            geo__pb2.PolygonRequest.SerializeToString,
             geo__pb2.ListCustomAreasResponse.FromString,
             options,
             channel_credentials,
