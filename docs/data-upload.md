@@ -1,12 +1,12 @@
 # Data Upload (GeoJSON Datasources)
 
-This project supports uploading a GeoJSON dataset as a custom datasource. Uploaded datasources are held in memory (non-persistent) by the geo service and are blended into polygon enrichment results.
+This project supports uploading a GeoJSON dataset as a custom datasource. Uploaded datasources are stored in PostGIS and are blended into polygon enrichment results.
 
 ## How It Works
 
 1. The frontend (or any client) sends a POST request to the backend endpoint `/api/datasources`.
 2. The backend forwards the request to the geo gRPC service (`UploadSource`).
-3. The geo service validates and stores the GeoJSON in memory.
+3. The geo service validates and stores the GeoJSON in PostGIS (`uploaded_sources` + `uploaded_pois`).
 4. During polygon enrichment, uploaded datasource features are blended into results alongside custom POIs and OSM data.
 
 ## API Endpoint
@@ -30,6 +30,15 @@ The GeoJSON must be:
 - Each feature **must** include a `properties.name` field.
 
 Other properties are optional and can be used by the UI (for example `category`, `phone`, `website`, `email`, `description`).
+
+## Updating An Existing Dataset
+
+Re-uploading with the same `name` **replaces** the dataset:
+- The source row is upserted.
+- Existing features for that source are deleted.
+- New features are inserted.
+
+This makes updates deterministic and keeps names stable even if the filename changes.
 
 ## Minimal Example
 
@@ -77,7 +86,7 @@ curl -X POST http://localhost:8000/api/datasources \
 
 ## Limitations
 
-- Uploaded datasources are stored **in memory only** (non-persistent).
+- Uploaded datasources are stored in **PostGIS** (persistent).
 - Only `Point` features are supported at the moment.
 - Authentication is not enforced yet.
 

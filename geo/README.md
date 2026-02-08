@@ -97,6 +97,32 @@ Managed via `init_db()` at startup — tables are created if they don't exist.
 | `stops` | JSONB | Array of stop objects |
 | `created_at` | TIMESTAMPTZ | |
 
+**`uploaded_sources`**
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `name` | TEXT | Unique datasource name |
+| `created_at` | TIMESTAMPTZ | |
+
+**`uploaded_pois`**
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `source_id` | UUID | FK → `uploaded_sources(id)` |
+| `name` | TEXT | |
+| `category` | TEXT | |
+| `description` | TEXT | |
+| `phone` | TEXT | |
+| `website` | TEXT | |
+| `email` | TEXT | |
+| `location` | GEOMETRY(Point, 4326) | Spatially indexed |
+| `properties` | JSONB | Raw properties payload |
+| `created_at` | TIMESTAMPTZ | |
+
+Uploaded datasources are persisted in PostGIS. Re-uploading with the same datasource name replaces all existing POIs for that source.
+
 ## OSM Enrichment
 
 Polygon coordinates are sent to the Overpass API as a union of OSM queries (amenity, shop, office, tourism, healthcare, etc.). Results are enriched with:
