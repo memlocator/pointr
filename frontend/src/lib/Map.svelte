@@ -43,6 +43,8 @@
   let poiName = $state('')
   let poiCategory = $state(BUSINESS_CATEGORIES[0].name)
   let poiDescription = $state('')
+  let poiPhone = $state('')
+  let poiWebsite = $state('')
   let poiContextMenu = $state(null) // { poiId, poiName, poiCategory, x, y, mode: 'view' | 'edit', inputName, inputCategory }
   let detailModal = $state(null) // entity object for DetailModal
 
@@ -770,15 +772,17 @@
       const resp = await fetch('http://localhost:8000/api/pois', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: poiName.trim(), category: poiCategory, description: poiDescription, lat: poiForm.lat, lng: poiForm.lng, tags: {} })
+        body: JSON.stringify({ name: poiName.trim(), category: poiCategory, description: poiDescription, phone: poiPhone, website: poiWebsite, lat: poiForm.lat, lng: poiForm.lng, tags: {} })
       })
       if (!resp.ok) throw new Error('Failed to save POI')
       const poi = await resp.json()
-      businesses = [...businesses, { name: poi.name, lat: poi.lat, lng: poi.lng, type: poi.category, address: '', phone: '', website: '', email: '', source: 'custom', id: poi.id, description: poi.description || '' }]
+      businesses = [...businesses, { name: poi.name, lat: poi.lat, lng: poi.lng, type: poi.category, address: '', phone: poi.phone || '', website: poi.website || '', email: '', source: 'custom', id: poi.id, description: poi.description || '' }]
     } catch (e) {
       alert('Error saving POI: ' + e.message)
     }
     poiForm = null
+    poiPhone = ''
+    poiWebsite = ''
   }
 
   async function deleteCustomPOI(id) {
@@ -798,11 +802,11 @@
       const resp = await fetch(`http://localhost:8000/api/pois/${poiContextMenu.poiId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: poiContextMenu.inputName.trim(), category: poiContextMenu.inputCategory, description: poiContextMenu.inputDescription || '' })
+        body: JSON.stringify({ name: poiContextMenu.inputName.trim(), category: poiContextMenu.inputCategory, description: poiContextMenu.inputDescription || '', phone: poiContextMenu.inputPhone || '', website: poiContextMenu.inputWebsite || '' })
       })
       if (!resp.ok) throw new Error('Failed to update POI')
       businesses = businesses.map(b => b.id === poiContextMenu.poiId
-        ? { ...b, name: poiContextMenu.inputName.trim(), type: poiContextMenu.inputCategory, description: poiContextMenu.inputDescription || '' }
+        ? { ...b, name: poiContextMenu.inputName.trim(), type: poiContextMenu.inputCategory, description: poiContextMenu.inputDescription || '', phone: poiContextMenu.inputPhone || '', website: poiContextMenu.inputWebsite || '' }
         : b)
     } catch (e) {
       alert('Error updating POI: ' + e.message)
@@ -1379,8 +1383,8 @@
         // Check custom POI markers first
         const poiFeatures = map.queryRenderedFeatures(e.point, { layers: ['businesses-layer-custom'] })
         if (poiFeatures.length > 0 && !altClick) {
-          const { name, type, id, description: poiDesc } = poiFeatures[0].properties
-          poiContextMenu = { poiId: id, poiName: name, poiCategory: type, poiDescription: poiDesc || '', lngLat: [e.lngLat.lng, e.lngLat.lat], x: e.point.x, y: e.point.y, mode: 'view' }
+          const { name, type, id, description: poiDesc, phone: poiPhone_, website: poiWebsite_ } = poiFeatures[0].properties
+          poiContextMenu = { poiId: id, poiName: name, poiCategory: type, poiDescription: poiDesc || '', poiPhone: poiPhone_ || '', poiWebsite: poiWebsite_ || '', lngLat: [e.lngLat.lng, e.lngLat.lat], x: e.point.x, y: e.point.y, mode: 'view' }
           poiForm = null
           polygonContextMenu = null
           return
@@ -1540,6 +1544,18 @@
         rows="2"
         class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs placeholder-gray-500 focus:border-orange-500 focus:outline-none mb-2 resize-none"
       ></textarea>
+      <input
+        type="tel"
+        bind:value={poiPhone}
+        placeholder="Phone (optional)"
+        class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs placeholder-gray-500 focus:border-orange-500 focus:outline-none mb-2"
+      />
+      <input
+        type="url"
+        bind:value={poiWebsite}
+        placeholder="Website (optional)"
+        class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs placeholder-gray-500 focus:border-orange-500 focus:outline-none mb-2"
+      />
       <button
         onclick={saveCustomPOI}
         disabled={!poiName.trim()}
@@ -1560,11 +1576,11 @@
           <div class="text-xs text-gray-500 mt-0.5">{poiContextMenu.poiCategory}</div>
         </div>
         <button
-          onclick={() => { detailModal = { type: 'poi', id: poiContextMenu.poiId, name: poiContextMenu.poiName, category: poiContextMenu.poiCategory, description: poiContextMenu.poiDescription, lat: poiContextMenu.lngLat[1], lng: poiContextMenu.lngLat[0] }; poiContextMenu = null }}
+          onclick={() => { detailModal = { type: 'poi', id: poiContextMenu.poiId, name: poiContextMenu.poiName, category: poiContextMenu.poiCategory, description: poiContextMenu.poiDescription, phone: poiContextMenu.poiPhone, website: poiContextMenu.poiWebsite, lat: poiContextMenu.lngLat[1], lng: poiContextMenu.lngLat[0] }; poiContextMenu = null }}
           class="w-full px-3 py-2 text-left text-xs text-gray-300 hover:bg-gray-800 flex items-center gap-2"
         ><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg> View Details</button>
         <button
-          onclick={() => poiContextMenu = { ...poiContextMenu, mode: 'edit', inputName: poiContextMenu.poiName, inputCategory: poiContextMenu.poiCategory, inputDescription: poiContextMenu.poiDescription }}
+          onclick={() => poiContextMenu = { ...poiContextMenu, mode: 'edit', inputName: poiContextMenu.poiName, inputCategory: poiContextMenu.poiCategory, inputDescription: poiContextMenu.poiDescription, inputPhone: poiContextMenu.poiPhone, inputWebsite: poiContextMenu.poiWebsite }}
           class="w-full px-3 py-2 text-left text-xs text-amber-400 hover:bg-gray-800 flex items-center gap-2"
         ><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit POI</button>
         <button
@@ -1596,6 +1612,18 @@
             rows="2"
             class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs placeholder-gray-500 focus:border-amber-500 focus:outline-none mb-2 resize-none"
           ></textarea>
+          <input
+            type="tel"
+            bind:value={poiContextMenu.inputPhone}
+            placeholder="Phone (optional)"
+            class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs placeholder-gray-500 focus:border-amber-500 focus:outline-none mb-2"
+          />
+          <input
+            type="url"
+            bind:value={poiContextMenu.inputWebsite}
+            placeholder="Website (optional)"
+            class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs placeholder-gray-500 focus:border-amber-500 focus:outline-none mb-2"
+          />
           <div class="flex gap-2">
             <button
               onclick={updateCustomPOI}
@@ -1619,11 +1647,11 @@
           const resp = await fetch(`http://localhost:8000/api/pois/${detailModal.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: updated.name, category: updated.category, description: updated.description })
+            body: JSON.stringify({ name: updated.name, category: updated.category, description: updated.description, phone: updated.phone || '', website: updated.website || '' })
           })
           if (!resp.ok) { alert('Failed to update POI'); return }
           businesses = businesses.map(b => b.id === detailModal.id
-            ? { ...b, name: updated.name, type: updated.category, description: updated.description }
+            ? { ...b, name: updated.name, type: updated.category, description: updated.description, phone: updated.phone || '', website: updated.website || '' }
             : b)
           detailModal = { ...detailModal, ...updated }
         } else {

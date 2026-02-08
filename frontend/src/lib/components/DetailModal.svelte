@@ -11,16 +11,20 @@
   let inputName = $state('')
   let inputCategory = $state('')
   let inputDescription = $state('')
+  let inputPhone = $state('')
+  let inputWebsite = $state('')
 
 function startEdit() {
     inputName = entity.name
     inputCategory = entity.category || ''
     inputDescription = entity.description || ''
+    inputPhone = entity.phone || ''
+    inputWebsite = entity.website || ''
     editing = true
   }
 
   async function save() {
-    await onSave({ name: inputName.trim(), category: inputCategory, description: inputDescription })
+    await onSave({ name: inputName.trim(), category: inputCategory, description: inputDescription, phone: inputPhone, website: inputWebsite })
     editing = false
   }
 
@@ -93,12 +97,38 @@ function startEdit() {
         <textarea
           bind:value={inputDescription}
           placeholder="Description"
-          class="w-full h-64 px-3 py-2 bg-gray-800 border border-gray-600 text-gray-200 text-sm placeholder-gray-600 focus:border-amber-500 focus:outline-none resize-none font-mono"
+          class="w-full h-40 px-3 py-2 bg-gray-800 border border-gray-600 text-gray-200 text-sm placeholder-gray-600 focus:border-amber-500 focus:outline-none resize-none font-mono mb-2"
         ></textarea>
-      {:else if entity.description}
-        <p class="text-gray-300 text-sm whitespace-pre-wrap">{entity.description}</p>
+        {#if entity.type === 'poi'}
+          <input
+            type="tel"
+            bind:value={inputPhone}
+            placeholder="Phone (optional)"
+            class="w-full px-3 py-2 bg-gray-800 border border-gray-600 text-gray-200 text-sm placeholder-gray-600 focus:border-amber-500 focus:outline-none mb-2"
+          />
+          <input
+            type="url"
+            bind:value={inputWebsite}
+            placeholder="Website (optional)"
+            class="w-full px-3 py-2 bg-gray-800 border border-gray-600 text-gray-200 text-sm placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+          />
+        {/if}
       {:else}
-        <p class="text-gray-600 text-sm italic">No description.</p>
+        {#if entity.description}
+          <p class="text-gray-300 text-sm whitespace-pre-wrap mb-3">{entity.description}</p>
+        {:else}
+          <p class="text-gray-600 text-sm italic mb-3">No description.</p>
+        {/if}
+        {#if entity.type === 'poi' && (entity.phone || entity.website)}
+          <div class="flex flex-col gap-1 mt-2">
+            {#if entity.phone}
+              <a href="tel:{entity.phone}" class="text-sm text-blue-400 hover:text-blue-300">{entity.phone}</a>
+            {/if}
+            {#if entity.website}
+              <a href={entity.website} target="_blank" rel="noopener" class="text-sm text-blue-400 hover:text-blue-300 truncate">{entity.website}</a>
+            {/if}
+          </div>
+        {/if}
       {/if}
     </div>
 

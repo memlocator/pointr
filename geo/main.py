@@ -53,6 +53,8 @@ def init_db():
                 name TEXT NOT NULL,
                 category TEXT NOT NULL DEFAULT 'custom',
                 description TEXT DEFAULT '',
+                phone TEXT DEFAULT '',
+                website TEXT DEFAULT '',
                 location GEOMETRY(Point, 4326) NOT NULL,
                 tags JSONB DEFAULT '{}'::jsonb,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -60,6 +62,12 @@ def init_db():
         """)
         conn.execute("""
             ALTER TABLE custom_pois ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''
+        """)
+        conn.execute("""
+            ALTER TABLE custom_pois ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT ''
+        """)
+        conn.execute("""
+            ALTER TABLE custom_pois ADD COLUMN IF NOT EXISTS website TEXT DEFAULT ''
         """)
         conn.execute("""
             CREATE INDEX IF NOT EXISTS custom_pois_location_idx
@@ -159,15 +167,17 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
         try:
             with get_pool().connection() as conn:
                 row = conn.execute("""
-                    INSERT INTO custom_pois (name, category, description, location, tags)
-                    VALUES (%s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s::jsonb)
-                    RETURNING id::text, name, category, description,
+                    INSERT INTO custom_pois (name, category, description, phone, website, location, tags)
+                    VALUES (%s, %s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s::jsonb)
+                    RETURNING id::text, name, category, description, phone, website,
                               ST_Y(location) AS lat, ST_X(location) AS lng,
                               tags::text AS tags_json
                 """, (
                     request.name,
                     request.category or 'custom',
                     request.description or '',
+                    request.phone or '',
+                    request.website or '',
                     request.lng, request.lat,
                     request.tags_json or '{}'
                 )).fetchone()
@@ -177,6 +187,8 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                 name=row['name'],
                 category=row['category'],
                 description=row['description'],
+                phone=row['phone'],
+                website=row['website'],
                 lat=row['lat'],
                 lng=row['lng'],
                 tags_json=row['tags_json'],
@@ -203,12 +215,12 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
         try:
             with get_pool().connection() as conn:
                 row = conn.execute("""
-                    UPDATE custom_pois SET name = %s, category = %s, description = %s
+                    UPDATE custom_pois SET name = %s, category = %s, description = %s, phone = %s, website = %s
                     WHERE id = %s::uuid
-                    RETURNING id::text, name, category, description,
+                    RETURNING id::text, name, category, description, phone, website,
                               ST_Y(location) AS lat, ST_X(location) AS lng,
                               tags::text AS tags_json
-                """, (request.name, request.category, request.description or '', request.id)).fetchone()
+                """, (request.name, request.category, request.description or '', request.phone or '', request.website or '', request.id)).fetchone()
                 conn.commit()
                 if not row:
                     return geo_pb2.CustomPOIResponse(error='POI not found')
@@ -217,6 +229,8 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                 name=row['name'],
                 category=row['category'],
                 description=row['description'],
+                phone=row['phone'],
+                website=row['website'],
                 lat=row['lat'],
                 lng=row['lng'],
                 tags_json=row['tags_json'],
@@ -231,7 +245,7 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                 # If bounding box provided, filter by it
                 if request.min_lat or request.max_lat:
                     rows = conn.execute("""
-                        SELECT id::text, name, category, description,
+                        SELECT id::text, name, category, description, phone, website,
                                ST_Y(location) AS lat, ST_X(location) AS lng,
                                tags::text AS tags_json
                         FROM custom_pois
@@ -240,7 +254,7 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                     """, (request.min_lng, request.min_lat, request.max_lng, request.max_lat)).fetchall()
                 else:
                     rows = conn.execute("""
-                        SELECT id::text, name, category, description,
+                        SELECT id::text, name, category, description, phone, website,
                                ST_Y(location) AS lat, ST_X(location) AS lng,
                                tags::text AS tags_json
                         FROM custom_pois
@@ -249,7 +263,7 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
             pois = [
                 geo_pb2.CustomPOIResponse(
                     id=r['id'], name=r['name'], category=r['category'],
-                    description=r['description'],
+                    description=r['description'], phone=r['phone'], website=r['website'],
                     lat=r['lat'], lng=r['lng'], tags_json=r['tags_json']
                 )
                 for r in rows
@@ -404,7 +418,7 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
 
         with get_pool().connection() as conn:
             rows = conn.execute("""
-                SELECT id::text, name, category, description,
+                SELECT id::text, name, category, description, phone, website,
                        ST_Y(location) AS lat, ST_X(location) AS lng,
                        tags::text AS tags_json
                 FROM custom_pois
@@ -418,8 +432,8 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                 lng=row['lng'],
                 type=row['category'],
                 address='',
-                phone='',
-                website='',
+                phone=row['phone'],
+                website=row['website'],
                 email='',
                 source='custom',
                 id=row['id'],

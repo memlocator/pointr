@@ -60,6 +60,8 @@ message AddCustomPOIRequest {
   double lng = 4;
   string tags_json = 5;
   string description = 6;
+  string phone = 7;
+  string website = 8;
 }
 
 message CustomPOIResponse {
@@ -71,6 +73,8 @@ message CustomPOIResponse {
   string tags_json = 6;
   string error = 7;
   string description = 8;
+  string phone = 9;
+  string website = 10;
 }
 
 message UpdateCustomPOIRequest {
@@ -78,6 +82,8 @@ message UpdateCustomPOIRequest {
   string name = 2;
   string category = 3;
   string description = 4;
+  string phone = 5;
+  string website = 6;
 }
 
 message DeleteCustomPOIRequest {

@@ -199,6 +199,8 @@ class CustomPOIRequest(BaseModel):
     name: str
     category: str
     description: str = ''
+    phone: str = ''
+    website: str = ''
     lat: float
     lng: float
     tags: dict = {}
@@ -209,6 +211,8 @@ class CustomPOIRequest(BaseModel):
                 "name": "HQ Office",
                 "category": "Offices",
                 "description": "Main headquarters building.",
+                "phone": "+1 555 0100",
+                "website": "https://example.com",
                 "lat": 51.5074,
                 "lng": -0.1278,
                 "tags": {"floor": "3", "access": "private"},
@@ -221,6 +225,8 @@ class CustomPOIResponse(BaseModel):
     name: str
     category: str
     description: str = ''
+    phone: str = ''
+    website: str = ''
     lat: float
     lng: float
     tags: dict = {}
@@ -261,6 +267,8 @@ class UpdateCustomPOIRequest(BaseModel):
     name: str
     category: str
     description: str = ''
+    phone: str = ''
+    website: str = ''
 
     model_config = {
         "json_schema_extra": {
@@ -268,6 +276,8 @@ class UpdateCustomPOIRequest(BaseModel):
                 "name": "HQ Office (Renamed)",
                 "category": "Offices",
                 "description": "Updated description.",
+                "phone": "+1 555 0100",
+                "website": "https://example.com",
             }
         }
     }
@@ -695,6 +705,8 @@ async def add_custom_poi(request: CustomPOIRequest):
                 name=request.name,
                 category=request.category,
                 description=request.description,
+                phone=request.phone,
+                website=request.website,
                 lat=request.lat,
                 lng=request.lng,
                 tags_json=json.dumps(request.tags)
@@ -706,6 +718,8 @@ async def add_custom_poi(request: CustomPOIRequest):
                 name=response.name,
                 category=response.category,
                 description=response.description,
+                phone=response.phone,
+                website=response.website,
                 lat=response.lat,
                 lng=response.lng,
                 tags=json.loads(response.tags_json) if response.tags_json else {}
@@ -737,7 +751,7 @@ async def list_custom_pois(
             return [
                 CustomPOIResponse(
                     id=p.id, name=p.name, category=p.category,
-                    description=p.description,
+                    description=p.description, phone=p.phone, website=p.website,
                     lat=p.lat, lng=p.lng,
                     tags=json.loads(p.tags_json) if p.tags_json else {}
                 )
@@ -757,7 +771,9 @@ async def update_custom_poi(poi_id: str, request: UpdateCustomPOIRequest):
                 id=poi_id,
                 name=request.name,
                 category=request.category,
-                description=request.description
+                description=request.description,
+                phone=request.phone,
+                website=request.website
             ))
             if response.error:
                 raise HTTPException(status_code=404, detail=response.error)
@@ -766,6 +782,8 @@ async def update_custom_poi(poi_id: str, request: UpdateCustomPOIRequest):
                 name=response.name,
                 category=response.category,
                 description=response.description,
+                phone=response.phone,
+                website=response.website,
                 lat=response.lat,
                 lng=response.lng,
                 tags=json.loads(response.tags_json) if response.tags_json else {}
