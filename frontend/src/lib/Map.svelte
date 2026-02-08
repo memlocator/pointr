@@ -425,8 +425,18 @@
     if (!source) return
     if (!showCustomAreas) {
       source.setData({ type: 'FeatureCollection', features: [] })
+      try {
+        map.setLayoutProperty('custom-areas-fill', 'visibility', 'none')
+        map.setLayoutProperty('custom-areas-line', 'visibility', 'none')
+        map.setLayoutProperty('custom-areas-label', 'visibility', 'none')
+      } catch {}
       return
     }
+    try {
+      map.setLayoutProperty('custom-areas-fill', 'visibility', 'visible')
+      map.setLayoutProperty('custom-areas-line', 'visibility', 'visible')
+      map.setLayoutProperty('custom-areas-label', 'visibility', 'visible')
+    } catch {}
     source.setData({
       type: 'FeatureCollection',
       features: customAreas.map(area => ({

@@ -83,7 +83,7 @@
 </script>
 
 <div class="h-screen w-screen flex flex-col bg-gray-900">
-  <Topbar bind:currentView bind:enabledSources businessCount={businesses.length} />
+  <Topbar bind:currentView bind:enabledSources bind:showCustomAreas businessCount={businesses.length} />
   <div class="flex-1 overflow-hidden">
     {#if currentView === 'map'}
       <Map bind:businesses bind:polygons bind:mapCenter bind:mapZoom bind:currentView bind:searchQuery bind:enabledCategories bind:showContactsOnly bind:heatmapEnabled bind:heatmapCategory bind:routingEnabled bind:stops bind:routeData bind:enabledSources bind:showCustomAreas />
