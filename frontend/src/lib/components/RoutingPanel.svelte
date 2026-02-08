@@ -9,6 +9,7 @@
     onFindAlongRoute = null
   } = $props()
 
+  let routeType = $state('road')  // 'road' | 'flight'
   let isCalculating = $state(false)
   let routeError = $state('')
   let activeSearch = $state(null)   // index of stop with open search bar
@@ -39,26 +40,49 @@
     }
   })
 
-  // Auto-calculate when all stops have coordinates
+  // Auto-calculate when all stops have coordinates or route type changes
   $effect(() => {
     if (!routingEnabled) return
+    const _type = routeType  // track for reactivity
     const allSet = stops.length >= 2 && stops.every(s => s.lat != null)
     if (allSet) calculateRoute()
   })
+
+  function haversineMeters(lat1, lng1, lat2, lng2) {
+    const R = 6371000
+    const dLat = (lat2 - lat1) * Math.PI / 180
+    const dLng = (lng2 - lng1) * Math.PI / 180
+    const a = Math.sin(dLat / 2) ** 2 +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  }
 
   async function calculateRoute() {
     isCalculating = true
     routeError = ''
     try {
-      const response = await fetch('http://localhost:8000/api/route', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ waypoints: stops.map(s => ({ lat: s.lat, lng: s.lng })) })
-      })
-      if (!response.ok) throw new Error('Failed to calculate route')
-      const data = await response.json()
-      if (data.error) { routeError = data.error; routeData = null }
-      else routeData = data
+      if (routeType === 'flight') {
+        const coords = stops.map(s => [s.lng, s.lat])
+        let dist = 0
+        for (let i = 0; i < stops.length - 1; i++) {
+          dist += haversineMeters(stops[i].lat, stops[i].lng, stops[i + 1].lat, stops[i + 1].lng)
+        }
+        routeData = {
+          geometry: { type: 'LineString', coordinates: coords },
+          distance_meters: dist,
+          duration_seconds: null
+        }
+      } else {
+        const response = await fetch('http://localhost:8000/api/route', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ waypoints: stops.map(s => ({ lat: s.lat, lng: s.lng })) })
+        })
+        if (!response.ok) throw new Error('Failed to calculate route')
+        const data = await response.json()
+        if (data.error) { routeError = data.error; routeData = null }
+        else routeData = data
+      }
     } catch (e) {
       routeError = e.message
       routeData = null
@@ -335,14 +359,23 @@
       + Add stop
     </button>
 
-    <!-- Calculate -->
-    <button
-      onclick={calculateRoute}
-      disabled={stops.length < 2 || !stops.every(s => s.lat != null) || isCalculating}
-      class="w-full px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium transition-colors"
-    >
-      {isCalculating ? 'CALCULATING...' : 'CALCULATE ROUTE'}
-    </button>
+    <!-- Route type + Calculate -->
+    <div class="flex gap-2">
+      <select
+        bind:value={routeType}
+        class="px-2 py-2 bg-gray-800 border border-gray-700 text-gray-300 text-xs focus:border-orange-500 focus:outline-none"
+      >
+        <option value="road">Road</option>
+        <option value="flight">Flight</option>
+      </select>
+      <button
+        onclick={calculateRoute}
+        disabled={stops.length < 2 || !stops.every(s => s.lat != null) || isCalculating}
+        class="flex-1 px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium transition-colors"
+      >
+        {isCalculating ? 'CALCULATING...' : 'CALCULATE'}
+      </button>
+    </div>
 
     <!-- Route info -->
     {#if routeData}
@@ -351,10 +384,12 @@
           <span class="text-gray-400">Distance:</span>
           <span class="text-white font-mono">{formatDistance(routeData.distance_meters)}</span>
         </div>
-        <div class="flex justify-between text-xs">
-          <span class="text-gray-400">Duration:</span>
-          <span class="text-white font-mono">{formatDuration(routeData.duration_seconds)}</span>
-        </div>
+        {#if routeData.duration_seconds != null}
+          <div class="flex justify-between text-xs">
+            <span class="text-gray-400">Duration:</span>
+            <span class="text-white font-mono">{formatDuration(routeData.duration_seconds)}</span>
+          </div>
+        {/if}
       </div>
 
       <!-- Find along route -->
