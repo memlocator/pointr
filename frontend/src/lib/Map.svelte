@@ -6,6 +6,7 @@
   import { BUSINESS_CATEGORIES, generateColorExpression, generateIconExpression } from './businessCategories.js'
   import { getSourceColor } from './sourceColors.js'
   import { apiUrl } from './api.js'
+  import { loadFromStorage, saveToStorage } from './stores/persistence.js'
   import LocationSearchBar from './components/LocationSearchBar.svelte'
   import DrawingToolbar from './components/DrawingToolbar.svelte'
   import CategoryFilter from './components/CategoryFilter.svelte'
@@ -27,6 +28,7 @@
     stops = $bindable([]),
     routeData = $bindable(null),
     routeType = $bindable('road'),
+    showCustomAreas = $bindable(true),
     pickingStop = $bindable(null),
     enabledSources = $bindable(null)
   } = $props()
@@ -122,12 +124,13 @@
   }
   let lastRoutePolygonId = null
 
-  // Custom areas loaded from DB
-  let customAreas = $state([])
+  // Custom areas (intersecting selection) persisted locally
+  let customAreas = $state(loadFromStorage('customAreas', []))
 
   // Custom POI form (right-click)
   let poiForm = $state(null) // { lat, lng, x, y } or null
   let poiSavedToast = $state(false)
+  let nearbyRegions = $state([])
   let poiName = $state('')
   let poiCategory = $state(BUSINESS_CATEGORIES[0].name)
   let poiDescription = $state('')
@@ -135,6 +138,7 @@
   let poiWebsite = $state('')
   let poiContextMenu = $state(null) // { poiId, poiName, poiCategory, x, y, mode: 'view' | 'edit', inputName, inputCategory }
   let detailModal = $state(null) // entity object for DetailModal
+  let lastEnrichPolygons = $state([]) // array of polygons used to fetch intersecting areas
 
   // Tracks which draw feature IDs have been saved as areas (session only)
   let drawnPolygonSaves = $state({}) // { [drawFeatureId]: { id, name } }
@@ -215,6 +219,10 @@
     const _b = businesses
 
     syncMapSource()
+  })
+
+  $effect(() => {
+    saveToStorage('customAreas', customAreas)
   })
 
   // Update heatmap data and visibility
@@ -415,6 +423,10 @@
     if (!mapLoaded || !map) return
     const source = map.getSource('custom-areas')
     if (!source) return
+    if (!showCustomAreas) {
+      source.setData({ type: 'FeatureCollection', features: [] })
+      return
+    }
     source.setData({
       type: 'FeatureCollection',
       features: customAreas.map(area => ({
@@ -428,10 +440,9 @@
     })
   })
 
-  // Load custom areas and category icons once map is ready
+  // Load category icons once map is ready
   $effect(() => {
     if (mapLoaded) {
-      loadCustomAreas()
       loadCategoryIcons()
     }
   })
@@ -698,6 +709,7 @@
       })
     }
     businesses = []
+    nearbyRegions = []
   }
 
   async function enrichCoordinates(coordinates) {
@@ -712,7 +724,10 @@
       console.warn('Enrichment error:', data.error)
       alert(data.error)
     }
-    return data.businesses || []
+    return {
+      businesses: data.businesses || [],
+      nearby: data.nearby_features || []
+    }
   }
 
   async function enrichPolygons() {
@@ -723,21 +738,29 @@
       return
     }
     isEnriching = true
+    nearbyRegions = []
     clearBusinessMarkers()
     try {
       const allBusinesses = []
+      const nearby = new Set()
+      const polygonsToQuery = []
       for (const feature of data.features) {
         if (feature.geometry.type !== 'Polygon') continue
         const coordinates = feature.geometry.coordinates[0].map(([lng, lat]) => ({ lat, lng }))
-        const results = await enrichCoordinates(coordinates)
-        allBusinesses.push(...results)
+        polygonsToQuery.push(coordinates)
+        const result = await enrichCoordinates(coordinates)
+        allBusinesses.push(...result.businesses)
+        result.nearby.forEach((name) => nearby.add(name))
       }
       for (const area of customAreas) {
-        const results = await enrichCoordinates(area.coordinates)
-        allBusinesses.push(...results)
+        const result = await enrichCoordinates(area.coordinates)
+        allBusinesses.push(...result.businesses)
+        result.nearby.forEach((name) => nearby.add(name))
       }
       businesses = allBusinesses
-      await loadCustomAreas()
+      nearbyRegions = Array.from(nearby)
+      lastEnrichPolygons = polygonsToQuery
+      await loadIntersectingAreasForPolygons(polygonsToQuery)
     } catch (error) {
       console.error('Error enriching polygon:', error)
       alert('Failed to enrich polygon: ' + error.message)
@@ -784,9 +807,13 @@
     map.getSource('route-buffer-overlay')?.setData({ type: 'FeatureCollection', features: [{ ...feature, id: lastRoutePolygonId }] })
 
     isEnriching = true
+    nearbyRegions = []
     try {
-      const results = await enrichCoordinates(polygonCoords)
-      businesses = mergeBusinesses(businesses, results)
+      const result = await enrichCoordinates(polygonCoords)
+      businesses = mergeBusinesses(businesses, result.businesses)
+      nearbyRegions = result.nearby
+      lastEnrichPolygons = [polygonCoords]
+      await loadIntersectingAreasForPolygons([polygonCoords])
     } catch (e) {
       alert('Route search failed: ' + e.message)
     } finally {
@@ -799,9 +826,13 @@
     const coords = polygonContextMenu.coordinates
     polygonContextMenu = null
     isEnriching = true
+    nearbyRegions = []
     try {
-      const results = await enrichCoordinates(coords)
-      businesses = mergeBusinesses(businesses, results)
+      const result = await enrichCoordinates(coords)
+      businesses = mergeBusinesses(businesses, result.businesses)
+      nearbyRegions = result.nearby
+      lastEnrichPolygons = [coords]
+      await loadIntersectingAreasForPolygons([coords])
     } catch (e) {
       alert('Geo lookup failed: ' + e.message)
     } finally {
@@ -829,7 +860,11 @@
       // Remove the draw feature — it's now represented by the amber area overlay
       draw.delete(featureId)
       savePolygons()
-      await loadCustomAreas()
+      if (lastEnrichPolygons && lastEnrichPolygons.length > 0) {
+        await loadIntersectingAreasForPolygons(lastEnrichPolygons)
+      } else {
+        customAreas = [...customAreas, saved]
+      }
     } catch (e) {
       alert('Error saving area: ' + e.message)
     }
@@ -848,7 +883,11 @@
       })
       if (!resp.ok) throw new Error('Failed to update area')
       drawnPolygonSaves = { ...drawnPolygonSaves, [polygonContextMenu.featureId]: { id: areaId, name: polygonContextMenu.inputName.trim() } }
-      await loadCustomAreas()
+      if (lastEnrichPolygons && lastEnrichPolygons.length > 0) {
+        await loadIntersectingAreasForPolygons(lastEnrichPolygons)
+      } else {
+        customAreas = customAreas.map(a => a.id === areaId ? { ...a, name: polygonContextMenu.inputName.trim(), description: polygonContextMenu.inputDescription || '' } : a)
+      }
     } catch (e) {
       alert('Error updating area: ' + e.message)
     }
@@ -860,7 +899,10 @@
       const resp = await fetch(apiUrl(`/api/areas/${id}`), { method: 'DELETE' })
       if (!resp.ok) throw new Error('Failed to delete area')
       drawnPolygonSaves = Object.fromEntries(Object.entries(drawnPolygonSaves).filter(([, v]) => v.id !== id))
-      await loadCustomAreas()
+      customAreas = customAreas.filter(a => a.id !== id)
+      if (lastEnrichPolygons && lastEnrichPolygons.length > 0) {
+        await loadIntersectingAreasForPolygons(lastEnrichPolygons)
+      }
     } catch (e) {
       alert('Error deleting area: ' + e.message)
     }
@@ -880,13 +922,31 @@
     }
   }
 
-  async function loadCustomAreas() {
+  async function loadIntersectingAreasForPolygons(polygons) {
+    if (!polygons || polygons.length === 0) {
+      customAreas = []
+      return
+    }
     try {
-      const resp = await fetch(apiUrl('/api/areas'))
-      if (!resp.ok) return
-      customAreas = await resp.json()
+      const seen = new Set()
+      const merged = []
+      for (const coords of polygons) {
+        const resp = await fetch(apiUrl('/api/areas/intersect'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ coordinates: coords, sources: [] })
+        })
+        if (!resp.ok) continue
+        const areas = await resp.json()
+        for (const area of areas) {
+          if (seen.has(area.id)) continue
+          seen.add(area.id)
+          merged.push(area)
+        }
+      }
+      customAreas = merged
     } catch (e) {
-      console.warn('Failed to load custom areas:', e)
+      console.warn('Failed to load intersecting areas:', e)
     }
   }
 
@@ -952,7 +1012,12 @@
         body: JSON.stringify({ name: areaName.trim(), coordinates: areaPrompt.coordinates })
       })
       if (!resp.ok) throw new Error('Failed to save area')
-      await loadCustomAreas()
+      const saved = await resp.json()
+      if (lastEnrichPolygons && lastEnrichPolygons.length > 0) {
+        await loadIntersectingAreasForPolygons(lastEnrichPolygons)
+      } else {
+        customAreas = [...customAreas, saved]
+      }
     } catch (e) {
       alert('Error saving area: ' + e.message)
     }
@@ -1816,7 +1881,11 @@
             body: JSON.stringify({ name: updated.name, description: updated.description })
           })
           if (!resp.ok) { alert('Failed to update area'); return }
-          await loadCustomAreas()
+          if (lastEnrichPolygons && lastEnrichPolygons.length > 0) {
+            await loadIntersectingAreasForPolygons(lastEnrichPolygons)
+          } else {
+            customAreas = customAreas.map(a => a.id === detailModal.id ? { ...a, name: updated.name, description: updated.description } : a)
+          }
           detailModal = { ...detailModal, ...updated }
         }
       }}
@@ -1843,9 +1912,13 @@
             polygonContextMenu = null
             if (!area) return
             isEnriching = true
+            nearbyRegions = []
             try {
-              const results = await enrichCoordinates(area.coordinates)
-              businesses = mergeBusinesses(businesses, results)
+              const result = await enrichCoordinates(area.coordinates)
+              businesses = mergeBusinesses(businesses, result.businesses)
+              nearbyRegions = result.nearby
+              lastEnrichPolygons = [area.coordinates]
+              await loadIntersectingAreasForPolygons([area.coordinates])
             } catch (e) {
               alert('Geo lookup failed: ' + e.message)
             } finally {
@@ -1867,7 +1940,10 @@
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit Area
         </button>
         <button
-          onclick={() => { customAreas = customAreas.filter(a => a.id !== polygonContextMenu.areaId); polygonContextMenu = null }}
+          onclick={() => {
+            customAreas = customAreas.filter(a => a.id !== polygonContextMenu.areaId)
+            polygonContextMenu = null
+          }}
           class="w-full px-3 py-2 text-left text-xs text-orange-400 hover:bg-gray-800 flex items-center gap-2"
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg> Remove from map
@@ -1906,7 +1982,11 @@
             onkeydown={async (e) => {
               if (e.key === 'Enter') {
                 await fetch(apiUrl(`/api/areas/${polygonContextMenu.areaId}`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: polygonContextMenu.inputName.trim(), description: polygonContextMenu.inputDescription || '' }) })
-                await loadCustomAreas()
+                if (lastEnrichPolygons && lastEnrichPolygons.length > 0) {
+                  await loadIntersectingAreasForPolygons(lastEnrichPolygons)
+                } else {
+                  customAreas = customAreas.map(a => a.id === polygonContextMenu.areaId ? { ...a, name: polygonContextMenu.inputName.trim(), description: polygonContextMenu.inputDescription || '' } : a)
+                }
                 polygonContextMenu = null
               }
             }}
@@ -1924,7 +2004,11 @@
                 try {
                   const resp = await fetch(apiUrl(`/api/areas/${polygonContextMenu.areaId}`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: polygonContextMenu.inputName.trim(), description: polygonContextMenu.inputDescription || '' }) })
                   if (!resp.ok) throw new Error('Failed to update area')
-                  await loadCustomAreas()
+                  if (lastEnrichPolygons && lastEnrichPolygons.length > 0) {
+                    await loadIntersectingAreasForPolygons(lastEnrichPolygons)
+                  } else {
+                    customAreas = customAreas.map(a => a.id === polygonContextMenu.areaId ? { ...a, name: polygonContextMenu.inputName.trim(), description: polygonContextMenu.inputDescription || '' } : a)
+                  }
                 } catch (e) { alert('Error: ' + e.message) }
                 polygonContextMenu = null
               }}

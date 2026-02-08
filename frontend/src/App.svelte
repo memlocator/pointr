@@ -38,6 +38,9 @@
   let stops = $state([])
   let routeData = $state(null)
 
+  // Custom areas visibility (local preference)
+  let showCustomAreas = $state(loadFromStorage('showCustomAreas', true))
+
   // Source filtering — null until Topbar populates from health data
   let enabledSources = $state(loadFromStorage('enabledSources', null))
 
@@ -73,13 +76,17 @@
   $effect(() => {
     saveToStorage('heatmapCategory', heatmapCategory)
   })
+
+  $effect(() => {
+    saveToStorage('showCustomAreas', showCustomAreas)
+  })
 </script>
 
 <div class="h-screen w-screen flex flex-col bg-gray-900">
   <Topbar bind:currentView bind:enabledSources businessCount={businesses.length} />
   <div class="flex-1 overflow-hidden">
     {#if currentView === 'map'}
-      <Map bind:businesses bind:polygons bind:mapCenter bind:mapZoom bind:currentView bind:searchQuery bind:enabledCategories bind:showContactsOnly bind:heatmapEnabled bind:heatmapCategory bind:routingEnabled bind:stops bind:routeData bind:enabledSources />
+      <Map bind:businesses bind:polygons bind:mapCenter bind:mapZoom bind:currentView bind:searchQuery bind:enabledCategories bind:showContactsOnly bind:heatmapEnabled bind:heatmapCategory bind:routingEnabled bind:stops bind:routeData bind:enabledSources bind:showCustomAreas />
     {:else if currentView === 'list'}
       {#key currentView}
         <ListView {businesses} bind:selectedBusinesses bind:currentView bind:searchQuery bind:enabledCategories bind:showContactsOnly />

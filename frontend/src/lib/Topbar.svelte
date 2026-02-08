@@ -6,7 +6,7 @@
   import ApiDocsModal from './components/ApiDocsModal.svelte'
   import { apiUrl } from './api.js'
 
-  let { currentView = $bindable(), enabledSources = $bindable(null), businessCount = 0 } = $props()
+  let { currentView = $bindable(), enabledSources = $bindable(null), showCustomAreas = $bindable(true), businessCount = 0 } = $props()
   let apiStatus = $state('checking...')
   let healthData = $state({
     status: 'checking...',
@@ -97,6 +97,11 @@
       enabledSources = [...enabledSources, key]
     }
     saveToStorage('enabledSources', enabledSources)
+  }
+
+  function toggleCustomAreas() {
+    showCustomAreas = !showCustomAreas
+    saveToStorage('showCustomAreas', showCustomAreas)
   }
 
   function extractPropertyKeys(features) {
@@ -404,7 +409,8 @@
                 }}
               />
             <div class="px-3 pb-2 flex flex-col gap-0.5">
-              {#each [{key: 'osm', label: 'OSM', sub: 'Overpass'}, {key: 'custom', label: 'Custom POIs', sub: 'local'}] as src}
+              <div class="px-2 pt-1 pb-1 text-[10px] font-bold text-gray-500 tracking-wide">USER DEFINED</div>
+              {#each [{key: 'custom', label: 'Custom POIs', sub: 'local'}] as src}
                 <button
                   onclick={() => toggleSource(src.key)}
                   class="flex items-center gap-3 px-2 py-2 hover:bg-gray-800 transition-colors w-full text-left"
@@ -417,6 +423,29 @@
                   <span class="text-xs text-gray-600 ml-auto">{src.sub}</span>
                 </button>
               {/each}
+              <button
+                onclick={toggleCustomAreas}
+                class="flex items-center gap-3 px-2 py-2 hover:bg-gray-800 transition-colors w-full text-left"
+              >
+                <div class={`w-9 h-5 rounded-full flex-shrink-0 relative transition-colors ${showCustomAreas ? 'bg-orange-500' : 'bg-gray-700'}`}>
+                  <span class={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${showCustomAreas ? 'translate-x-[18px]' : 'translate-x-0.5'}`}></span>
+                </div>
+                <div class="w-2.5 h-2.5 rounded-full flex-shrink-0 border border-gray-600" style="background-color: #f59e0b"></div>
+                <span class="text-xs font-medium text-gray-200">Custom Areas</span>
+                <span class="text-xs text-gray-600 ml-auto">local</span>
+              </button>
+              <div class="px-2 pt-2 pb-1 text-[10px] font-bold text-gray-500 tracking-wide">PUBLIC</div>
+              <button
+                onclick={() => toggleSource('osm')}
+                class="flex items-center gap-3 px-2 py-2 hover:bg-gray-800 transition-colors w-full text-left"
+              >
+                <div class={`w-9 h-5 rounded-full flex-shrink-0 relative transition-colors ${enabledSources?.includes('osm') ? 'bg-orange-500' : 'bg-gray-700'}`}>
+                  <span class={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${enabledSources?.includes('osm') ? 'translate-x-[18px]' : 'translate-x-0.5'}`}></span>
+                </div>
+                <div class="w-2.5 h-2.5 rounded-full flex-shrink-0 border border-gray-600" style="background-color: {getSourceColor('osm')}"></div>
+                <span class="text-xs font-medium text-gray-200">OSM</span>
+                <span class="text-xs text-gray-600 ml-auto">Overpass</span>
+              </button>
               {#each healthData.datasources?.filter(d => d.name !== 'Primary (PostGIS)') ?? [] as ds}
                 <div class="flex items-center gap-2 px-2 py-2 hover:bg-gray-800 transition-colors">
                   <button
