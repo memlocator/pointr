@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     # External APIs
     nominatim_api_url: str = "https://nominatim.openstreetmap.org"
+    osrm_api_url: str = "http://router.project-osrm.org"
 
     @property
     def user_agent(self) -> str:

@@ -33,6 +33,12 @@
   let heatmapEnabled = $state(loadFromStorage('heatmapEnabled', false))
   let heatmapCategory = $state(loadFromStorage('heatmapCategory', 'Food & Dining'))
 
+  // Routing state (temporary, no persistence)
+  let routingEnabled = $state(false)
+  let routeStart = $state(null)
+  let routeEnd = $state(null)
+  let routeData = $state(null)
+
   // Auto-save to localStorage when state changes
   $effect(() => {
     saveToStorage('businesses', businesses)
@@ -71,7 +77,7 @@
   <Topbar bind:currentView businessCount={businesses.length} />
   <div class="flex-1 overflow-hidden">
     {#if currentView === 'map'}
-      <Map bind:businesses bind:polygons bind:mapCenter bind:mapZoom bind:currentView bind:searchQuery bind:enabledCategories bind:showContactsOnly bind:heatmapEnabled bind:heatmapCategory />
+      <Map bind:businesses bind:polygons bind:mapCenter bind:mapZoom bind:currentView bind:searchQuery bind:enabledCategories bind:showContactsOnly bind:heatmapEnabled bind:heatmapCategory bind:routingEnabled bind:routeStart bind:routeEnd bind:routeData />
     {:else if currentView === 'list'}
       {#key currentView}
         <ListView {businesses} bind:selectedBusinesses bind:currentView bind:searchQuery bind:enabledCategories bind:showContactsOnly />

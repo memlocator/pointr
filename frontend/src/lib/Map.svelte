@@ -7,6 +7,7 @@
   import LocationSearchBar from './components/LocationSearchBar.svelte'
   import DrawingToolbar from './components/DrawingToolbar.svelte'
   import CategoryFilter from './components/CategoryFilter.svelte'
+  import RoutingPanel from './components/RoutingPanel.svelte'
 
   let {
     businesses = $bindable([]),
@@ -18,13 +19,19 @@
     enabledCategories = $bindable({}),
     showContactsOnly = $bindable(false),
     heatmapEnabled = $bindable(false),
-    heatmapCategory = $bindable('')
+    heatmapCategory = $bindable(''),
+    routingEnabled = $bindable(false),
+    routeStart = $bindable(null),
+    routeEnd = $bindable(null),
+    routeData = $bindable(null)
   } = $props()
   let mapContainer
   let map
   let draw
   let isEnriching = $state(false)
   let mapLoaded = $state(false)
+  let startMarker = null
+  let endMarker = null
 
   // Filter businesses based on enabled categories and contact info
   let filteredBusinesses = $derived.by(() => {
@@ -146,6 +153,150 @@
       map.setLayoutProperty('phone-badge', 'visibility', 'visible')
       map.setLayoutProperty('website-badge', 'visibility', 'visible')
       map.setLayoutProperty('email-badge', 'visibility', 'visible')
+    }
+  })
+
+  // Update route line on map
+  $effect(() => {
+    if (!mapLoaded || !map) return
+
+    const routeSource = map.getSource('route')
+    if (!routeSource) return
+
+    // Update route line
+    if (routeData && routeData.geometry) {
+      routeSource.setData({
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature',
+          geometry: routeData.geometry
+        }]
+      })
+
+      // Fit map to route bounds
+      const coordinates = routeData.geometry.coordinates
+      const bounds = coordinates.reduce((bounds, coord) => {
+        return bounds.extend(coord)
+      }, new maplibregl.LngLatBounds(coordinates[0], coordinates[0]))
+
+      map.fitBounds(bounds, {
+        padding: { top: 100, bottom: 100, left: 400, right: 100 }
+      })
+    } else {
+      routeSource.setData({ type: 'FeatureCollection', features: [] })
+    }
+  })
+
+  // Update draggable markers
+  $effect(() => {
+    if (!mapLoaded || !map) return
+
+    // Clean up markers if routing is disabled
+    if (!routingEnabled) {
+      if (startMarker) {
+        startMarker.remove()
+        startMarker = null
+      }
+      if (endMarker) {
+        endMarker.remove()
+        endMarker = null
+      }
+      return
+    }
+
+    // Create or update start marker
+    if (routeStart) {
+      if (!startMarker) {
+        // Create marker element
+        const el = document.createElement('div')
+        el.className = 'route-marker-start'
+        el.style.width = '24px'
+        el.style.height = '24px'
+        el.style.borderRadius = '50%'
+        el.style.backgroundColor = '#22c55e'
+        el.style.border = '3px solid white'
+        el.style.cursor = 'grab'
+        el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.4)'
+        el.style.transition = 'transform 0.1s'
+
+        startMarker = new maplibregl.Marker({
+          element: el,
+          draggable: true,
+          anchor: 'center'
+        })
+          .setLngLat([routeStart.lng, routeStart.lat])
+          .addTo(map)
+
+        startMarker.on('dragstart', () => {
+          el.style.cursor = 'grabbing'
+          el.style.transform = 'scale(1.2)'
+          map.dragPan.disable()
+        })
+
+        startMarker.on('drag', () => {
+          // Visual feedback during drag
+        })
+
+        startMarker.on('dragend', () => {
+          el.style.cursor = 'grab'
+          el.style.transform = 'scale(1)'
+          map.dragPan.enable()
+
+          const lngLat = startMarker.getLngLat()
+          routeStart = {
+            lat: lngLat.lat,
+            lng: lngLat.lng,
+            name: `${lngLat.lat.toFixed(4)}, ${lngLat.lng.toFixed(4)}`
+          }
+        })
+      } else {
+        startMarker.setLngLat([routeStart.lng, routeStart.lat])
+      }
+    } else if (startMarker) {
+      startMarker.remove()
+      startMarker = null
+    }
+
+    // Create or update end marker
+    if (routeEnd) {
+      if (!endMarker) {
+        // Create marker element
+        const el = document.createElement('div')
+        el.className = 'route-marker-end'
+        el.style.width = '20px'
+        el.style.height = '20px'
+        el.style.borderRadius = '50%'
+        el.style.backgroundColor = '#ef4444'
+        el.style.border = '3px solid white'
+        el.style.cursor = 'grab'
+        el.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)'
+
+        endMarker = new maplibregl.Marker({ element: el, draggable: true })
+          .setLngLat([routeEnd.lng, routeEnd.lat])
+          .addTo(map)
+
+        endMarker.on('dragend', () => {
+          const lngLat = endMarker.getLngLat()
+          routeEnd = {
+            lat: lngLat.lat,
+            lng: lngLat.lng,
+            name: `${lngLat.lat.toFixed(4)}, ${lngLat.lng.toFixed(4)}`
+          }
+        })
+      } else {
+        endMarker.setLngLat([routeEnd.lng, routeEnd.lat])
+      }
+    } else if (endMarker) {
+      endMarker.remove()
+      endMarker = null
+    }
+  })
+
+  // Resize map when routing panel opens/closes
+  $effect(() => {
+    if (routingEnabled !== undefined && map && mapLoaded) {
+      // Small delay to let flexbox settle
+      setTimeout(() => map.resize(), 50)
     }
   })
 
@@ -709,6 +860,31 @@
         }
       })
 
+      // Add route source and layers
+      map.addSource('route', {
+        type: 'geojson',
+        data: {
+          type: 'FeatureCollection',
+          features: []
+        }
+      })
+
+      // Add route line layer
+      map.addLayer({
+        id: 'route-line',
+        type: 'line',
+        source: 'route',
+        paint: {
+          'line-color': '#f97316',
+          'line-width': 4,
+          'line-opacity': 0.8
+        },
+        layout: {
+          'line-cap': 'round',
+          'line-join': 'round'
+        }
+      })
+
       // Add popup on click - shared handler for all business layers
       const showPopup = (e) => {
         const coordinates = e.features[0].geometry.coordinates.slice()
@@ -751,6 +927,21 @@
       map.on('click', 'website-badge', showPopup)
       map.on('click', 'email-badge', showPopup)
 
+      // Handle map clicks for routing
+      function handleMapClick(e) {
+        if (!routingEnabled) return
+
+        const { lng, lat } = e.lngLat
+
+        if (!routeStart) {
+          routeStart = { lat, lng, name: `${lat.toFixed(4)}, ${lng.toFixed(4)}` }
+        } else if (!routeEnd) {
+          routeEnd = { lat, lng, name: `${lat.toFixed(4)}, ${lng.toFixed(4)}` }
+        }
+      }
+
+      map.on('click', handleMapClick)
+
       // Change cursor on hover for all layers
       const layers = ['businesses-layer', 'phone-badge', 'website-badge', 'email-badge']
       layers.forEach(layer => {
@@ -775,13 +966,34 @@
       }
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
+
+      // Clean up route markers
+      if (startMarker) {
+        startMarker.remove()
+        startMarker = null
+      }
+      if (endMarker) {
+        endMarker.remove()
+        endMarker = null
+      }
+
       map.remove()
     }
   })
 </script>
 
-<div class="relative w-full h-full">
-  <div bind:this={mapContainer} class="w-full h-full"></div>
+<div class="relative w-full h-full flex transition-all duration-300">
+  <!-- Routing Panel -->
+  <RoutingPanel
+    bind:routingEnabled
+    bind:routeStart
+    bind:routeEnd
+    bind:routeData
+  />
+
+  <!-- Map Container -->
+  <div class="relative flex-1 h-full transition-all duration-300">
+    <div bind:this={mapContainer} class="w-full h-full"></div>
 
   <!-- Location search -->
   <LocationSearchBar onLocationSelect={handleLocationSelect} />
@@ -793,6 +1005,7 @@
     {isDrawingCircle}
     {isEnriching}
     {circleCenter}
+    bind:routingEnabled
     onStartPolygonDrawing={startPolygonDrawing}
     onStartCircleDrawing={startCircleDrawing}
     onEnrich={enrichPolygons}
@@ -817,5 +1030,6 @@
         </div>
       {/each}
     </div>
+  </div>
   </div>
 </div>

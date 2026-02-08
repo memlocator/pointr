@@ -126,6 +126,17 @@ class NominatimResult(BaseModel):
 class NominatimSearchResponse(BaseModel):
     results: list[NominatimResult]
 
+# Routing models
+class RouteRequest(BaseModel):
+    start: Coordinate
+    end: Coordinate
+
+class RouteResponse(BaseModel):
+    geometry: dict
+    distance_meters: float
+    duration_seconds: float
+    error: str = ''
+
 @app.get("/")
 async def root():
     return {"message": f"Welcome to {settings.app_name} API"}
@@ -482,6 +493,48 @@ async def search_location(q: str):
 
     except httpx.HTTPError as e:
         raise HTTPException(status_code=503, detail=f"Nominatim service error: {str(e)}")
+
+@app.post("/api/route", response_model=RouteResponse)
+async def get_route(request: RouteRequest):
+    """Get driving route between two points using OSRM"""
+    try:
+        # OSRM expects coordinates as "lng,lat;lng,lat"
+        coords = f"{request.start.lng},{request.start.lat};{request.end.lng},{request.end.lat}"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{settings.osrm_api_url}/route/v1/driving/{coords}",
+                params={
+                    "overview": "full",
+                    "geometries": "geojson"
+                },
+                headers={
+                    "User-Agent": settings.user_agent
+                },
+                timeout=10.0
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            if data.get('code') != 'Ok':
+                return RouteResponse(
+                    geometry={},
+                    distance_meters=0,
+                    duration_seconds=0,
+                    error=f"OSRM error: {data.get('message', 'Unknown error')}"
+                )
+
+            route = data['routes'][0]
+
+            return RouteResponse(
+                geometry=route['geometry'],
+                distance_meters=route['distance'],
+                duration_seconds=route['duration'],
+                error=''
+            )
+
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=503, detail=f"OSRM service error: {str(e)}")
 
 def main():
     uvicorn.run("main:app", host=settings.backend_host, port=settings.backend_port, reload=True)

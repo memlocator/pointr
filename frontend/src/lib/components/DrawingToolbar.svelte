@@ -7,6 +7,7 @@
     isDrawingCircle = false,
     isEnriching = false,
     circleCenter = null,
+    routingEnabled = $bindable(false),
     onStartPolygonDrawing,
     onStartCircleDrawing,
     onEnrich,
@@ -92,6 +93,25 @@
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="text-white">
         <path d="M3 4 L13 4 M5 4 L5 2 L11 2 L11 4 M6 7 L6 12 M10 7 L10 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
         <path d="M4 4 L4 13 C4 13.5 4.5 14 5 14 L11 14 C11.5 14 12 13.5 12 13 L12 4" stroke="currentColor" stroke-width="1.5" fill="none"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Routing button -->
+  <div class="bg-gray-900 border-2 border-gray-700 flex flex-col">
+    <button
+      onclick={() => routingEnabled = !routingEnabled}
+      class={`w-8 h-8 flex items-center justify-center transition-colors duration-200 ${
+        routingEnabled
+          ? 'bg-gray-700 border-l-2 border-orange-500'
+          : 'bg-gray-900 hover:bg-gray-800'
+      }`}
+      title="Routing"
+    >
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class={routingEnabled ? 'text-orange-500' : 'text-white'}>
+        <circle cx="4" cy="3" r="2" stroke="currentColor" stroke-width="1.5" fill="none"/>
+        <circle cx="12" cy="13" r="2" stroke="currentColor" stroke-width="1.5" fill="none"/>
+        <path d="M5 4.5 Q8 8, 11 11.5" stroke="currentColor" stroke-width="1.5" fill="none"/>
       </svg>
     </button>
   </div>
