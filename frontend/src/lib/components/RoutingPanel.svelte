@@ -380,28 +380,43 @@
         </div>
       </div>
 
-      <!-- Export -->
-      <div class="space-y-1">
-        <label class="text-xs font-bold text-gray-400 block">EXPORT</label>
+    {/if}
+
+    <!-- Import / Export -->
+    <div class="border border-gray-700 divide-y divide-gray-700">
+      <div class="px-3 py-2 bg-gray-800">
+        <span class="text-xs font-bold text-gray-400 tracking-wide">IMPORT / EXPORT</span>
+      </div>
+      <div class="p-2 space-y-2">
+        <input bind:this={fileInput} type="file" accept=".geojson,.json" class="hidden" onchange={onImportFile} />
+        <button
+          onclick={() => fileInput.click()}
+          class="w-full py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-xs transition-colors flex items-center justify-center gap-1.5"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          Import GeoJSON
+        </button>
         <div class="flex gap-2">
-          <button onclick={exportLineString} class="flex-1 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-xs transition-colors">
-            LineString
+          <button
+            onclick={exportLineString}
+            disabled={!routeData}
+            class="flex-1 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 border border-gray-700 text-gray-300 text-xs transition-colors flex items-center justify-center gap-1.5"
+            title="Export route geometry + stops"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/><path d="M9 18H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/></svg>
+            Line
           </button>
-          <button onclick={exportPoints} class="flex-1 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-xs transition-colors">
+          <button
+            onclick={exportPoints}
+            disabled={!stops.some(s => s.lat != null)}
+            class="flex-1 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 border border-gray-700 text-gray-300 text-xs transition-colors flex items-center justify-center gap-1.5"
+            title="Export stops as points"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/><path d="M9 18H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/></svg>
             Points
           </button>
         </div>
       </div>
-    {/if}
-
-    <!-- Import -->
-    <div class="space-y-1">
-      <label class="text-xs font-bold text-gray-400 block">IMPORT</label>
-      <input bind:this={fileInput} type="file" accept=".geojson,.json" class="hidden" onchange={onImportFile} />
-      <button onclick={() => fileInput.click()} class="w-full py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-xs transition-colors">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-        Load GeoJSON
-      </button>
     </div>
 
     <!-- Error -->
