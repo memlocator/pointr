@@ -1,6 +1,6 @@
 # Data Sources
 
-Pointr queries POIs from multiple sources and blends the results. This document explains how to add external PostGIS databases as additional data sources.
+Pointr queries POIs from multiple sources and blends the results. This document explains how to add external PostGIS databases as additional data sources, and how uploaded GeoJSON datasources are auto-mapped.
 
 ## Sources and Priority
 
@@ -71,6 +71,24 @@ docker compose up -d geo
 ```
 
 The geo service creates a connection pool (up to 5 connections) for each configured source at startup. Failed connections are logged but do not prevent startup.
+
+---
+
+## Uploaded Datasources (GeoJSON)
+
+Custom GeoJSON uploads are treated as a data source named by the dataset you upload. The frontend includes a **column-mapping heuristic** to help files that don’t match the expected field names.
+
+When you upload a GeoJSON, the UI will:
+
+1. Inspect available `properties` fields.
+2. Propose a mapping to the expected fields (e.g. `name`, `category`, `description`, `phone`, `website`, `email`).
+3. Let you review and edit the mapping before upload.
+
+The heuristic is intentionally conservative:
+- It matches on common field name variants (case-insensitive), e.g. `title`, `label` → `name`, `type` → `category`, `desc` → `description`, `tel` → `phone`, `url` → `website`.
+- If it can’t confidently match a required field (like `name`), it leaves it empty so you can choose manually.
+
+For details on the required GeoJSON format and update workflow, see [docs/data-upload.md](docs/data-upload.md).
 
 ---
 
