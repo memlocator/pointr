@@ -178,7 +178,7 @@ See [docs/data-sources.md](docs/data-sources.md) for how to add additional PostG
 
 See [docs/data-upload.md](docs/data-upload.md) for how to upload GeoJSON datasources, update them, and the required format.
 See [docs/logging.md](docs/logging.md) for the self-hosted Grafana + Loki setup.
-See [docs/env.md](docs/env.md) for all environment variables.
+See [docs/env.md](docs/env.md) for all environment variables (including a brief OSRM self-hosting guide).
 
 Demo upload dataset: [demo-data/gamla-stan-upload.geojson](demo-data/gamla-stan-upload.geojson)
 Demo upload dataset (unmapped fields): [demo-data/gamla-stan-upload-unmapped.geojson](demo-data/gamla-stan-upload-unmapped.geojson)

@@ -36,6 +36,35 @@ GEO_ADDITIONAL_DBS=[{"name":"Municipal","url":"postgresql://user:pass@host:5432/
 - `CORS_ORIGINS` (default: `['http://localhost:5173']`)
 - `NOMINATIM_RATE_LIMIT` (default: `60`)
 
+### Self-hosting OSRM (brief)
+
+If you want to run your own OSRM instance, you can point `OSRM_API_URL` to it. A minimal local setup using Docker:
+
+```bash
+# 1) Download a PBF (example: Sweden)
+curl -L -o sweden-latest.osm.pbf https://download.geofabrik.de/europe/sweden-latest.osm.pbf
+
+# 2) Prepare the routing data (car profile)
+docker run --rm -v "$(pwd):/data" ghcr.io/project-osrm/osrm-backend \
+  osrm-extract -p /opt/car.lua /data/sweden-latest.osm.pbf
+docker run --rm -v "$(pwd):/data" ghcr.io/project-osrm/osrm-backend \
+  osrm-partition /data/sweden-latest.osrm
+docker run --rm -v "$(pwd):/data" ghcr.io/project-osrm/osrm-backend \
+  osrm-customize /data/sweden-latest.osrm
+
+# 3) Run the OSRM HTTP server
+docker run --rm -p 5000:5000 -v "$(pwd):/data" ghcr.io/project-osrm/osrm-backend \
+  osrm-routed --algorithm mld /data/sweden-latest.osrm
+```
+
+Then set:
+
+```env
+OSRM_API_URL=http://localhost:5000
+```
+
+Reference: https://github.com/Project-OSRM/osrm-backend
+
 ## Geo Service (gRPC)
 
 - `GEO_PORT` (default: `50051`)
