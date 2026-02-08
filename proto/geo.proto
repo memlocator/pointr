@@ -19,6 +19,12 @@ service GeoDataService {
   rpc AddRoute(AddRouteRequest) returns (RouteResponse);
   rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse);
   rpc DeleteRoute(DeleteRouteRequest) returns (DeleteResponse);
+
+  // Uploaded datasources (in-memory, future: persistent DB)
+  // TODO: add authentication check when auth is implemented
+  rpc UploadSource(UploadSourceRequest) returns (UploadSourceResponse);
+  rpc ListUploadedSources(ListUploadedSourcesRequest) returns (ListUploadedSourcesResponse);
+  rpc DeleteUploadedSource(DeleteUploadedSourceRequest) returns (DeleteResponse);
 }
 
 message Coordinate {
@@ -172,4 +178,31 @@ message HealthRequest {}
 message HealthResponse {
   string status = 1;
   string message = 2;
+}
+
+// Uploaded datasource messages
+message UploadSourceRequest {
+  string name = 1;
+  string geojson = 2;  // GeoJSON FeatureCollection string
+}
+
+message UploadSourceResponse {
+  string name = 1;
+  int32 feature_count = 2;
+  string error = 3;
+}
+
+message ListUploadedSourcesRequest {}
+
+message ListUploadedSourcesResponse {
+  repeated UploadedSource sources = 1;
+}
+
+message UploadedSource {
+  string name = 1;
+  int32 feature_count = 2;
+}
+
+message DeleteUploadedSourceRequest {
+  string name = 1;
 }

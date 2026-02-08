@@ -99,6 +99,21 @@ class GeoDataServiceStub(object):
                 request_serializer=geo__pb2.DeleteRouteRequest.SerializeToString,
                 response_deserializer=geo__pb2.DeleteResponse.FromString,
                 _registered_method=True)
+        self.UploadSource = channel.unary_unary(
+                '/geo.GeoDataService/UploadSource',
+                request_serializer=geo__pb2.UploadSourceRequest.SerializeToString,
+                response_deserializer=geo__pb2.UploadSourceResponse.FromString,
+                _registered_method=True)
+        self.ListUploadedSources = channel.unary_unary(
+                '/geo.GeoDataService/ListUploadedSources',
+                request_serializer=geo__pb2.ListUploadedSourcesRequest.SerializeToString,
+                response_deserializer=geo__pb2.ListUploadedSourcesResponse.FromString,
+                _registered_method=True)
+        self.DeleteUploadedSource = channel.unary_unary(
+                '/geo.GeoDataService/DeleteUploadedSource',
+                request_serializer=geo__pb2.DeleteUploadedSourceRequest.SerializeToString,
+                response_deserializer=geo__pb2.DeleteResponse.FromString,
+                _registered_method=True)
 
 
 class GeoDataServiceServicer(object):
@@ -182,6 +197,26 @@ class GeoDataServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def UploadSource(self, request, context):
+        """Uploaded datasources (in-memory, future: persistent DB)
+        TODO: add authentication check when auth is implemented
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListUploadedSources(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteUploadedSource(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_GeoDataServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -248,6 +283,21 @@ def add_GeoDataServiceServicer_to_server(servicer, server):
             'DeleteRoute': grpc.unary_unary_rpc_method_handler(
                     servicer.DeleteRoute,
                     request_deserializer=geo__pb2.DeleteRouteRequest.FromString,
+                    response_serializer=geo__pb2.DeleteResponse.SerializeToString,
+            ),
+            'UploadSource': grpc.unary_unary_rpc_method_handler(
+                    servicer.UploadSource,
+                    request_deserializer=geo__pb2.UploadSourceRequest.FromString,
+                    response_serializer=geo__pb2.UploadSourceResponse.SerializeToString,
+            ),
+            'ListUploadedSources': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListUploadedSources,
+                    request_deserializer=geo__pb2.ListUploadedSourcesRequest.FromString,
+                    response_serializer=geo__pb2.ListUploadedSourcesResponse.SerializeToString,
+            ),
+            'DeleteUploadedSource': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteUploadedSource,
+                    request_deserializer=geo__pb2.DeleteUploadedSourceRequest.FromString,
                     response_serializer=geo__pb2.DeleteResponse.SerializeToString,
             ),
     }
@@ -601,6 +651,87 @@ class GeoDataService(object):
             target,
             '/geo.GeoDataService/DeleteRoute',
             geo__pb2.DeleteRouteRequest.SerializeToString,
+            geo__pb2.DeleteResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UploadSource(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/geo.GeoDataService/UploadSource',
+            geo__pb2.UploadSourceRequest.SerializeToString,
+            geo__pb2.UploadSourceResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListUploadedSources(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/geo.GeoDataService/ListUploadedSources',
+            geo__pb2.ListUploadedSourcesRequest.SerializeToString,
+            geo__pb2.ListUploadedSourcesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteUploadedSource(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/geo.GeoDataService/DeleteUploadedSource',
+            geo__pb2.DeleteUploadedSourceRequest.SerializeToString,
             geo__pb2.DeleteResponse.FromString,
             options,
             channel_credentials,
