@@ -1,0 +1,101 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0706, 59.3251]},
+      "properties": {
+        "title": "Stortorget Cafe",
+        "kind": "Food & Dining",
+        "tel": "+46-8-555-0201",
+        "web": "https://stortorget-cafe.example",
+        "mail": "hello@stortorget-cafe.example",
+        "notes": "Corner tables with a view."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0723, 59.3243]},
+      "properties": {
+        "title": "Gamla Stan Antiques",
+        "kind": "Retail",
+        "tel": "+46-8-555-0202",
+        "web": "https://gamlestan-antiques.example",
+        "mail": "info@gamlestan-antiques.example",
+        "notes": "Specializes in 19th century Scandinavian pieces."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0735, 59.3259]},
+      "properties": {
+        "title": "Skeppsbro Deli",
+        "kind": "Food & Dining",
+        "tel": "+46-8-555-0203",
+        "web": "https://skeppsbro-deli.example",
+        "mail": "hello@skeppsbro-deli.example",
+        "notes": "Local cheeses and sandwiches."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0712, 59.3238]},
+      "properties": {
+        "title": "Vasterlanggatan Books",
+        "kind": "Retail",
+        "tel": "+46-8-555-0204",
+        "web": "https://vasterlanggatan-books.example",
+        "mail": "info@vasterlanggatan-books.example",
+        "notes": "Used and rare books."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0690, 59.3247]},
+      "properties": {
+        "title": "Riddarholmen Photo",
+        "kind": "Retail",
+        "tel": "+46-8-555-0205",
+        "web": "https://riddarholmen-photo.example",
+        "mail": "studio@riddarholmen-photo.example",
+        "notes": "Portrait sessions by appointment."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0702, 59.3263]},
+      "properties": {
+        "title": "Slottsbacken Visitor Info",
+        "kind": "Government",
+        "tel": "+46-8-555-0206",
+        "web": "https://slottsbacken-info.example",
+        "mail": "info@slottsbacken-info.example",
+        "notes": "Maps and visitor passes."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0748, 59.3248]},
+      "properties": {
+        "title": "Skeppsbron Wellness",
+        "kind": "Healthcare",
+        "tel": "+46-8-555-0207",
+        "web": "https://skeppsbron-wellness.example",
+        "mail": "care@skeppsbron-wellness.example",
+        "notes": "Walk-in hours 09:00-15:00."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0729, 59.3267]},
+      "properties": {
+        "title": "Kopmanbrinken Bakery",
+        "kind": "Food & Dining",
+        "tel": "+46-8-555-0208",
+        "web": "https://kopmanbrinken-bakery.example",
+        "mail": "hello@kopmanbrinken-bakery.example",
+        "notes": "Fresh bread from 07:30."
+      }
+    }
+  ]
+}

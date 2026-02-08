@@ -1,0 +1,53 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0705, 59.3252]},
+      "properties": {
+        "t1tle": "Stortorget Cafe",
+        "categry": "Food & Dining",
+        "ph0ne": "+46-8-555-0301",
+        "webbsite": "https://stortorget-cafe.example",
+        "eml": "hello@stortorget-cafe.example",
+        "descrption": "Corner tables with a view."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0724, 59.3242]},
+      "properties": {
+        "t1tle": "Gamla Stan Antiques",
+        "categry": "Retail",
+        "ph0ne": "+46-8-555-0302",
+        "webbsite": "https://gamlestan-antiques.example",
+        "eml": "info@gamlestan-antiques.example",
+        "descrption": "Specializes in 19th century Scandinavian pieces."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0734, 59.3260]},
+      "properties": {
+        "t1tle": "Skeppsbro Deli",
+        "categry": "Food & Dining",
+        "ph0ne": "+46-8-555-0303",
+        "webbsite": "https://skeppsbro-deli.example",
+        "eml": "hello@skeppsbro-deli.example",
+        "descrption": "Local cheeses and sandwiches."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [18.0713, 59.3239]},
+      "properties": {
+        "t1tle": "Vasterlanggatan Books",
+        "categry": "Retail",
+        "ph0ne": "+46-8-555-0304",
+        "webbsite": "https://vasterlanggatan-books.example",
+        "eml": "info@vasterlanggatan-books.example",
+        "descrption": "Used and rare books."
+      }
+    }
+  ]
+}
