@@ -1,4 +1,5 @@
 <script>
+  import { apiUrl } from '../api.js'
   let {
     onLocationSelect = null,
     placeholder = "Search location (min 3 chars)...",
@@ -26,7 +27,7 @@
     searchTimeout = setTimeout(async () => {
       isSearching = true
       try {
-        const response = await fetch(`http://localhost:8000/api/search?q=${encodeURIComponent(locationSearch)}`)
+        const response = await fetch(apiUrl(`/api/search?q=${encodeURIComponent(locationSearch)}`))
         if (response.ok) {
           const data = await response.json()
           searchResults = data.results

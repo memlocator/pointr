@@ -1,6 +1,7 @@
 <script>
   import DataTable from './components/DataTable/DataTable.svelte'
   import ReconResults from './ReconResults.svelte'
+  import { apiUrl } from './api.js'
 
   let { selectedBusinesses = $bindable([]) } = $props()
 
@@ -174,7 +175,7 @@
     }
 
     try {
-      const response = await fetch('http://localhost:8000/api/recon/stream', {
+      const response = await fetch(apiUrl('/api/recon/stream'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ domains, silent_mode: silentMode })

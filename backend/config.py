@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     # Rate Limiting
     nominatim_rate_limit: int = 60
 
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

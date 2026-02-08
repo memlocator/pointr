@@ -3,6 +3,8 @@
   import { saveToStorage } from './stores/persistence.js'
   import { getSourceColor } from './sourceColors.js'
   import ColumnMappingModal from './components/ColumnMappingModal.svelte'
+  import ApiDocsModal from './components/ApiDocsModal.svelte'
+  import { apiUrl } from './api.js'
 
   let { currentView = $bindable(), enabledSources = $bindable(null), businessCount = 0 } = $props()
   let apiStatus = $state('checking...')
@@ -14,14 +16,13 @@
   let fileInput = $state(null)
   let reuploadInput = $state(null)
   let reuploadTarget = $state('')
+  let showDocs = $state(false)
   let primaryDb = $derived.by(() => healthData.datasources?.find(d => d.name === 'Primary (PostGIS)'))
   let mappingModal = $state(null)
 
-  const API_URL = 'http://localhost:8000'
-
   async function checkAPI() {
     try {
-      const response = await fetch(`${API_URL}/api/health`)
+      const response = await fetch(apiUrl('/api/health'))
       const data = await response.json()
       apiStatus = data.status
       healthData = data
@@ -166,7 +167,7 @@
   }
 
   async function postDatasource(name, geojsonText) {
-    const response = await fetch(`${API_URL}/api/datasources`, {
+    const response = await fetch(apiUrl('/api/datasources'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, geojson: geojsonText })
@@ -225,7 +226,7 @@
   async function deleteDatasource(name) {
     if (!confirm(`Delete datasource "${name}"?`)) return
     try {
-      const response = await fetch(`${API_URL}/api/datasources/${encodeURIComponent(name)}`, {
+      const response = await fetch(apiUrl(`/api/datasources/${encodeURIComponent(name)}`), {
         method: 'DELETE'
       })
       if (!response.ok) {
@@ -467,15 +468,17 @@
       REFRESH
     </button>
 
-    <a
-      href="http://localhost:8000/docs"
-      target="_blank"
-      rel="noopener"
+    <button
+      onclick={() => showDocs = true}
       class="w-7 h-7 rounded-full bg-gray-800 border border-gray-700 hover:border-gray-500 flex items-center justify-center text-gray-400 hover:text-gray-200 text-xs font-bold transition-colors"
       title="API Docs"
-    >?</a>
+    >?</button>
   </div>
 </div>
+
+{#if showDocs}
+  <ApiDocsModal onClose={() => showDocs = false} />
+{/if}
 
 {#if mappingModal}
   <ColumnMappingModal

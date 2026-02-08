@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import uvicorn
@@ -14,7 +15,7 @@ import asyncio
 import logging
 from config import settings
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 tags_metadata = [
@@ -66,6 +67,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+AUTH_USER_HEADER = "X-User"
+
+@app.middleware("http")
+async def require_user_header(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    user = request.headers.get(AUTH_USER_HEADER)
+    if not user:
+        return JSONResponse(status_code=401, content={"detail": f"Missing {AUTH_USER_HEADER} header"})
+    request.state.user = user
+    return await call_next(request)
 
 # Pydantic models for API
 class Coordinate(BaseModel):
@@ -744,12 +757,9 @@ async def run_recon_stream(request: ReconRequest):
 @app.post("/api/pois", response_model=CustomPOIResponse, tags=["custom-pois"], summary="Create custom POI")
 async def add_custom_poi(request: CustomPOIRequest):
     """Create a new custom point of interest. Returns the created POI with its assigned UUID."""
-    logger.debug(f"[POI CREATE] name={request.name!r} category={request.category!r} lat={request.lat} lng={request.lng}")
     try:
-        logger.debug(f"[POI CREATE] connecting to geo {settings.geo_host}:{settings.geo_port}")
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
-            logger.debug("[POI CREATE] calling AddCustomPOI")
             response = stub.AddCustomPOI(geo_pb2.AddCustomPOIRequest(
                 name=request.name,
                 category=request.category,
@@ -760,7 +770,6 @@ async def add_custom_poi(request: CustomPOIRequest):
                 lng=request.lng,
                 tags_json=json.dumps(request.tags)
             ))
-            logger.debug(f"[POI CREATE] gRPC response: id={response.id!r} lat={response.lat} lng={response.lng} error={response.error!r}")
             if response.error:
                 logger.error(f"[POI CREATE] gRPC error: {response.error}")
                 raise HTTPException(status_code=400, detail=response.error)
@@ -775,7 +784,6 @@ async def add_custom_poi(request: CustomPOIRequest):
                 lng=response.lng,
                 tags=json.loads(response.tags_json) if response.tags_json else {}
             )
-            logger.debug(f"[POI CREATE] returning: {result.model_dump()}")
             return result
     except grpc.RpcError as e:
         logger.error(f"[POI CREATE] gRPC exception: {e.code()} {e.details()}")
@@ -871,7 +879,6 @@ async def upload_datasource(request: UploadSourceRequest):
     Future: add authentication check before upload
     """
     # TODO: check authentication when auth is implemented
-    logger.debug(f"[upload_datasource] name={request.name!r}")
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
