@@ -340,11 +340,78 @@
     }
   }
 
+  function downloadJSON(obj, filename) {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
+  function exportPolygons() {
+    const fc = { type: 'FeatureCollection', features: draw.getAll().features }
+    downloadJSON(fc, 'polygons.geojson')
+  }
+
+  function exportCustomPOIs() {
+    const fc = {
+      type: 'FeatureCollection',
+      features: businesses
+        .filter(b => b.source === 'custom')
+        .map(b => ({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [b.lng, b.lat] },
+          properties: { name: b.name, category: b.type, description: b.description || '' }
+        }))
+    }
+    downloadJSON(fc, 'custom-pois.geojson')
+  }
+
+  async function importGeoJSON(file) {
+    const text = await file.text()
+    try {
+      const fc = JSON.parse(text)
+      if (fc.type !== 'FeatureCollection') return alert('Expected a GeoJSON FeatureCollection')
+
+      const polygonFeatures = fc.features.filter(f =>
+        f.geometry?.type === 'Polygon' || f.geometry?.type === 'MultiPolygon'
+      )
+      const pointFeatures = fc.features.filter(f => f.geometry?.type === 'Point')
+
+      if (polygonFeatures.length > 0) {
+        draw.add({ type: 'FeatureCollection', features: polygonFeatures })
+        savePolygons()
+      }
+
+      if (pointFeatures.length > 0) {
+        for (const f of pointFeatures) {
+          const [lng, lat] = f.geometry.coordinates
+          const { name = 'Imported', category = 'Other', description = '' } = f.properties || {}
+          try {
+            const resp = await fetch('http://localhost:8000/api/pois', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, category, description, lat, lng, tags: {} })
+            })
+            if (resp.ok) {
+              const poi = await resp.json()
+              businesses = [...businesses, { name: poi.name, lat: poi.lat, lng: poi.lng, type: poi.category, address: '', phone: '', website: '', email: '', source: 'custom', id: poi.id, description: poi.description || '' }]
+            }
+          } catch {}
+        }
+      }
+    } catch {
+      alert('Invalid GeoJSON file')
+    }
+  }
+
   function clearAll() {
     if (draw) {
       draw.deleteAll()
     }
     polygons = []
+    customAreas = []
     clearBusinessMarkers()
 
     // Cancel any active drawing
@@ -462,7 +529,7 @@
           const radius = haversineDistance(circleCenter, currentPoint)
 
           const options = { steps: 64, units: 'kilometers' }
-          const circlePolygon = circle(circleCenter, Math.max(0.1, radius), options)
+          const circlePolygon = circle(circleCenter, Math.max(0.001, radius), options)
 
           map.getSource('preview-circle').setData(circlePolygon)
         }
@@ -472,7 +539,7 @@
         const currentPoint = [e.lngLat.lng, e.lngLat.lat]
         const radius = haversineDistance(circleCenter, currentPoint)
 
-        if (radius > 0.05) { // minimum radius 50 meters
+        if (radius > 0.01) { // minimum radius 10 meters
           const options = { steps: 64, units: 'kilometers' }
           const circlePolygon = circle(circleCenter, radius, options)
           draw.add(circlePolygon)
@@ -524,7 +591,8 @@
 
   async function enrichPolygons() {
     const data = draw.getAll()
-    if (!data.features || data.features.length === 0) {
+    const hasDrawn = data.features?.some(f => f.geometry.type === 'Polygon')
+    if (!hasDrawn && customAreas.length === 0) {
       alert('Please draw a polygon first!')
       return
     }
@@ -538,7 +606,12 @@
         const results = await enrichCoordinates(coordinates)
         allBusinesses.push(...results)
       }
+      for (const area of customAreas) {
+        const results = await enrichCoordinates(area.coordinates)
+        allBusinesses.push(...results)
+      }
       businesses = allBusinesses
+      await loadCustomAreas()
     } catch (error) {
       console.error('Error enriching polygon:', error)
       alert('Failed to enrich polygon: ' + error.message)
@@ -660,7 +733,6 @@
     try {
       const resp = await fetch(`http://localhost:8000/api/areas/${id}`, { method: 'DELETE' })
       if (!resp.ok) throw new Error('Failed to delete area')
-      // Remove from session tracking
       drawnPolygonSaves = Object.fromEntries(Object.entries(drawnPolygonSaves).filter(([, v]) => v.id !== id))
       await loadCustomAreas()
     } catch (e) {
@@ -870,6 +942,10 @@
     const handleKeyDown = (e) => {
       if (e.key === 'Control' || e.key === 'Meta') {
         ctrlPressed = true
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && polygonContextMenu?.mode === 'menu') {
+        deletePolygon(polygonContextMenu.featureId)
+        polygonContextMenu = null
       }
     }
     const handleKeyUp = (e) => {
@@ -1206,7 +1282,7 @@
       // Add popup on click - shared handler for all business layers
       const showPopup = (e) => {
         const coordinates = e.features[0].geometry.coordinates.slice()
-        const { name, type, address, phone, website, email, source } = e.features[0].properties
+        const { name, type, address, phone, website, email, source, description } = e.features[0].properties
 
         new maplibregl.Popup()
           .setLngLat(coordinates)
@@ -1217,6 +1293,7 @@
                 <span class="text-xs px-1.5 py-0.5 rounded ${source === 'custom' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}">${source === 'custom' ? 'Custom' : 'OSM'}</span>
               </div>
               <p class="text-xs text-gray-600 mb-2">${type}</p>
+              ${description ? `<p class="text-xs text-gray-600 italic mb-2">${description}</p>` : ''}
               ${address ? `<p class="text-xs text-gray-500 mb-1">${address}</p>` : ''}
               ${phone ? `<p class="text-xs text-gray-700"><strong>Phone:</strong> <a href="tel:${phone}" class="text-blue-600">${phone}</a></p>` : ''}
               ${website ? `<p class="text-xs text-gray-700"><strong>Web:</strong> <a href="${website}" target="_blank" class="text-blue-600 underline">${website.replace(/^https?:\/\//, '').substring(0, 30)}...</a></p>` : ''}
@@ -1413,6 +1490,7 @@
   <!-- Custom drawing controls -->
   <DrawingToolbar
     {polygons}
+    {businesses}
     {isDrawingPolygon}
     {isDrawingCircle}
     {isEnriching}
@@ -1424,6 +1502,9 @@
     onClearAll={clearAll}
     onGoToPolygon={goToPolygon}
     onDeletePolygon={deletePolygon}
+    onExportPolygons={exportPolygons}
+    onExportPOIs={exportCustomPOIs}
+    onImport={importGeoJSON}
   />
 
   <!-- Custom POI form (right-click) -->
@@ -1603,12 +1684,34 @@
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit Area
         </button>
         <button
-          onclick={() => deleteCustomArea(polygonContextMenu.areaId)}
+          onclick={() => { customAreas = customAreas.filter(a => a.id !== polygonContextMenu.areaId); polygonContextMenu = null }}
+          class="w-full px-3 py-2 text-left text-xs text-orange-400 hover:bg-gray-800 flex items-center gap-2"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg> Remove from map
+        </button>
+        <button
+          onclick={() => polygonContextMenu = { ...polygonContextMenu, mode: 'confirm-delete-area' }}
           class="w-full px-3 py-2 text-left text-xs text-red-400 hover:bg-gray-800 flex items-center gap-2"
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg> Delete Area
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg> Delete from DB
         </button>
         <button onclick={() => polygonContextMenu = null} class="w-full px-3 py-2 text-left text-xs text-gray-500 hover:bg-gray-800">Cancel</button>
+      {:else if polygonContextMenu.mode === 'confirm-delete-area'}
+        <div class="p-3">
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span class="text-xs font-bold text-red-400 tracking-wide">DELETE AREA</span>
+          </div>
+          <p class="text-xs text-gray-300 mb-1">Permanently delete <span class="font-semibold text-white">{polygonContextMenu.areaName}</span> from the database?</p>
+          <p class="text-xs text-gray-500 mb-3">This cannot be undone. The polygon will be removed from all views and cannot be recovered.</p>
+          <div class="flex gap-2">
+            <button
+              onclick={() => deleteCustomArea(polygonContextMenu.areaId)}
+              class="flex-1 py-1.5 bg-red-700 hover:bg-red-600 text-white text-xs font-medium"
+            >DELETE</button>
+            <button onclick={() => polygonContextMenu = { ...polygonContextMenu, mode: 'saved-area' }} class="px-2 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs">BACK</button>
+          </div>
+        </div>
       {:else if polygonContextMenu.mode === 'saved-area-edit'}
         <div class="p-3">
           <div class="text-xs font-bold text-amber-500 tracking-wide mb-2">EDIT AREA</div>
@@ -1674,9 +1777,15 @@
             onclick={() => polygonContextMenu = { ...polygonContextMenu, mode: 'save', inputName: '', inputDescription: '' }}
             class="w-full px-3 py-2 text-left text-xs text-amber-400 hover:bg-gray-800 flex items-center gap-2"
           >
-            <span>+</span> Save Area
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg> Save Area
           </button>
         {/if}
+        <button
+          onclick={() => { deletePolygon(polygonContextMenu.featureId); polygonContextMenu = null }}
+          class="w-full px-3 py-2 text-left text-xs text-red-400 hover:bg-gray-800 flex items-center gap-2"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg> Delete Polygon
+        </button>
         <div class="border-t border-gray-700"></div>
         <button onclick={() => polygonContextMenu = null} class="w-full px-3 py-2 text-left text-xs text-gray-500 hover:bg-gray-800">Cancel</button>
       {:else if polygonContextMenu.mode === 'save' || polygonContextMenu.mode === 'edit'}

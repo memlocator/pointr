@@ -542,6 +542,8 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
             data = response.json()
 
             businesses = []
+            qid_to_indices = {}   # {wikidata_qid: [business_index]}
+            wiki_to_indices = {}  # {"lang:title": [business_index]}
             elements = data.get('elements', [])
             print(f"Overpass returned {len(elements)} elements")
 
@@ -615,6 +617,7 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                             print(f"  DEBUG: Aerodrome {name} filtered out - center not in polygon")
                         continue
 
+                idx = len(businesses)
                 businesses.append(geo_pb2.Business(
                     name=name,
                     lat=lat,
@@ -628,10 +631,29 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                     id=''
                 ))
 
+                # Track wikidata/wikipedia for description enrichment
+                if tags.get('wikidata'):
+                    qid_to_indices.setdefault(tags['wikidata'], []).append(idx)
+                elif tags.get('wikipedia'):
+                    wiki_to_indices.setdefault(tags['wikipedia'], []).append(idx)
+
                 if tags.get('aeroway') == 'aerodrome':
                     print(f"  ✓ Added aerodrome: {name} (center: {lat}, {lng})")
                 elif any(tag in tags for tag in ['historic', 'tourism']) or tags.get('building') in ['palace', 'castle']:
                     print(f"  → {name} (type={business_type})")
+
+            # Enrich with Wikidata/Wikipedia descriptions
+            if qid_to_indices:
+                descriptions = self._fetch_wikidata_descriptions(list(qid_to_indices.keys()))
+                for qid, desc in descriptions.items():
+                    for idx in qid_to_indices.get(qid, []):
+                        businesses[idx].description = desc
+
+            if wiki_to_indices:
+                descriptions = self._fetch_wikipedia_summaries(list(wiki_to_indices.keys()))
+                for wiki_key, desc in descriptions.items():
+                    for idx in wiki_to_indices.get(wiki_key, []):
+                        businesses[idx].description = desc
 
             return businesses, None
         except httpx.TimeoutException as e:
@@ -642,6 +664,77 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
             error_msg = f"Error querying Overpass API: {str(e)}"
             print(error_msg)
             return [], error_msg
+
+
+    def _fetch_wikidata_descriptions(self, qids: list) -> dict:
+        """Batch fetch short descriptions from Wikidata for a list of QIDs"""
+        if not qids:
+            return {}
+        results = {}
+        try:
+            for i in range(0, len(qids), 50):
+                batch = qids[i:i + 50]
+                resp = httpx.get(
+                    'https://www.wikidata.org/w/api.php',
+                    params={
+                        'action': 'wbgetentities',
+                        'ids': '|'.join(batch),
+                        'props': 'descriptions',
+                        'languages': 'en',
+                        'format': 'json'
+                    },
+                    timeout=10.0
+                )
+                resp.raise_for_status()
+                for qid, entity in resp.json().get('entities', {}).items():
+                    desc = entity.get('descriptions', {}).get('en', {}).get('value', '')
+                    if desc:
+                        results[qid] = desc
+        except Exception as e:
+            print(f"Wikidata API error: {e}")
+        return results
+
+    def _fetch_wikipedia_summaries(self, wiki_keys: list) -> dict:
+        """Fetch 2-sentence extracts from Wikipedia for 'lang:title' keys"""
+        if not wiki_keys:
+            return {}
+        # Group by language
+        by_lang = {}
+        for key in wiki_keys:
+            if ':' in key:
+                lang, title = key.split(':', 1)
+            else:
+                lang, title = 'en', key
+            by_lang.setdefault(lang, []).append((key, title))
+        results = {}
+        for lang, items in by_lang.items():
+            try:
+                for i in range(0, len(items), 20):
+                    batch = items[i:i + 20]
+                    title_to_key = {title: key for key, title in batch}
+                    resp = httpx.get(
+                        f'https://{lang}.wikipedia.org/w/api.php',
+                        params={
+                            'action': 'query',
+                            'prop': 'extracts',
+                            'exintro': '1',
+                            'exsentences': '2',
+                            'explaintext': '1',
+                            'titles': '|'.join(title_to_key.keys()),
+                            'format': 'json',
+                            'redirects': '1'
+                        },
+                        timeout=10.0
+                    )
+                    resp.raise_for_status()
+                    for page in resp.json().get('query', {}).get('pages', {}).values():
+                        title = page.get('title', '')
+                        extract = page.get('extract', '').strip()
+                        if extract and title in title_to_key:
+                            results[title_to_key[title]] = extract
+            except Exception as e:
+                print(f"Wikipedia API error ({lang}): {e}")
+        return results
 
 
 def serve():

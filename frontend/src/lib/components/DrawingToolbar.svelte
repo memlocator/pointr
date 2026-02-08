@@ -3,6 +3,7 @@
 
   let {
     polygons = [],
+    businesses = [],
     isDrawingPolygon = false,
     isDrawingCircle = false,
     isEnriching = false,
@@ -13,8 +14,16 @@
     onEnrich,
     onClearAll,
     onGoToPolygon,
-    onDeletePolygon
+    onDeletePolygon,
+    onExportPolygons,
+    onExportPOIs,
+    onImport
   } = $props()
+
+  let fileInput
+  let showImportExport = $state(false)
+
+  const customPOICount = $derived(businesses.filter(b => b.source === 'custom').length)
 </script>
 
 <div class="absolute flex flex-col gap-2" style="top: 10px; left: 10px; z-index: 1000; pointer-events: auto;">
@@ -112,5 +121,46 @@
         <path d="M5 4.5 Q8 8, 11 11.5" stroke="currentColor" stroke-width="1.5" fill="none"/>
       </svg>
     </button>
+  </div>
+
+  <!-- Import / Export -->
+  <div class="bg-gray-900 border-2 border-gray-700 flex flex-col relative">
+    <input bind:this={fileInput} type="file" accept=".geojson,.json" class="hidden"
+      onchange={(e) => { const f = e.target.files?.[0]; if (f) onImport?.(f); e.target.value = '' }} />
+    <button
+      onclick={() => showImportExport = !showImportExport}
+      class={`w-8 h-8 flex items-center justify-center transition-colors duration-200 ${showImportExport ? 'bg-gray-700 border-l-2 border-orange-500' : 'bg-gray-900 hover:bg-gray-800'}`}
+      title="Import / Export"
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={showImportExport ? 'text-orange-500' : 'text-white'}>
+        <polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/>
+        <path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/>
+      </svg>
+    </button>
+
+    {#if showImportExport}
+      <div class="absolute left-10 top-0 bg-gray-900 border-2 border-gray-700 shadow-lg w-44 z-50">
+        <div class="px-3 py-1.5 border-b border-gray-700">
+          <span class="text-xs font-bold text-gray-400 tracking-wide">IMPORT / EXPORT</span>
+        </div>
+        <button onclick={() => { showImportExport = false; fileInput.click() }}
+          class="w-full px-3 py-2 text-left text-xs text-gray-300 hover:bg-gray-800 flex items-center gap-2">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          Import GeoJSON
+        </button>
+        <button onclick={() => { showImportExport = false; onExportPolygons?.() }}
+          disabled={polygons.length === 0}
+          class="w-full px-3 py-2 text-left text-xs text-gray-300 hover:bg-gray-800 disabled:opacity-40 flex items-center gap-2">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Export Polygons ({polygons.length})
+        </button>
+        <button onclick={() => { showImportExport = false; onExportPOIs?.() }}
+          disabled={customPOICount === 0}
+          class="w-full px-3 py-2 text-left text-xs text-gray-300 hover:bg-gray-800 disabled:opacity-40 flex items-center gap-2">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="3"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/></svg>
+          Export Custom POIs ({customPOICount})
+        </button>
+      </div>
+    {/if}
   </div>
 </div>
