@@ -3,11 +3,12 @@
   import maplibregl from 'maplibre-gl'
   import MapboxDraw from '@mapbox/mapbox-gl-draw'
   import circle from '@turf/circle'
-  import { BUSINESS_CATEGORIES, generateColorExpression } from './businessCategories.js'
+  import { BUSINESS_CATEGORIES, generateColorExpression, generateIconExpression } from './businessCategories.js'
   import LocationSearchBar from './components/LocationSearchBar.svelte'
   import DrawingToolbar from './components/DrawingToolbar.svelte'
   import CategoryFilter from './components/CategoryFilter.svelte'
   import RoutingPanel from './components/RoutingPanel.svelte'
+  import DetailModal from './components/DetailModal.svelte'
 
   let {
     businesses = $bindable([]),
@@ -40,7 +41,9 @@
   let poiForm = $state(null) // { lat, lng, x, y } or null
   let poiName = $state('')
   let poiCategory = $state(BUSINESS_CATEGORIES[0].name)
+  let poiDescription = $state('')
   let poiContextMenu = $state(null) // { poiId, poiName, poiCategory, x, y, mode: 'view' | 'edit', inputName, inputCategory }
+  let detailModal = $state(null) // entity object for DetailModal
 
   // Tracks which draw feature IDs have been saved as areas (session only)
   let drawnPolygonSaves = $state({}) // { [drawFeatureId]: { id, name } }
@@ -105,7 +108,8 @@
             website: business.website,
             email: business.email,
             source: business.source || 'osm',
-            id: business.id || ''
+            id: business.id || '',
+            description: business.description || ''
           }
         }))
       }
@@ -327,9 +331,12 @@
     })
   })
 
-  // Load custom areas once map is ready
+  // Load custom areas and category icons once map is ready
   $effect(() => {
-    if (mapLoaded) loadCustomAreas()
+    if (mapLoaded) {
+      loadCustomAreas()
+      loadCategoryIcons()
+    }
   })
 
   // Resize map when routing panel opens/closes
@@ -647,6 +654,19 @@
     polygonContextMenu = null
   }
 
+  async function loadCategoryIcons() {
+    for (const cat of BUSINESS_CATEGORIES) {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="${cat.color}" stroke="#f59e0b" stroke-width="2.5"/>${cat.icon}</svg>`
+      const url = 'data:image/svg+xml,' + encodeURIComponent(svg)
+      await new Promise((resolve) => {
+        const img = new Image(32, 32)
+        img.onload = () => { map.addImage(`poi-icon-${cat.name}`, img); resolve() }
+        img.onerror = resolve
+        img.src = url
+      })
+    }
+  }
+
   async function loadCustomAreas() {
     try {
       const resp = await fetch('http://localhost:8000/api/areas')
@@ -663,11 +683,11 @@
       const resp = await fetch('http://localhost:8000/api/pois', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: poiName.trim(), category: poiCategory, lat: poiForm.lat, lng: poiForm.lng, tags: {} })
+        body: JSON.stringify({ name: poiName.trim(), category: poiCategory, description: poiDescription, lat: poiForm.lat, lng: poiForm.lng, tags: {} })
       })
       if (!resp.ok) throw new Error('Failed to save POI')
       const poi = await resp.json()
-      businesses = [...businesses, { name: poi.name, lat: poi.lat, lng: poi.lng, type: poi.category, address: '', phone: '', website: '', email: '', source: 'custom', id: poi.id }]
+      businesses = [...businesses, { name: poi.name, lat: poi.lat, lng: poi.lng, type: poi.category, address: '', phone: '', website: '', email: '', source: 'custom', id: poi.id, description: poi.description || '' }]
     } catch (e) {
       alert('Error saving POI: ' + e.message)
     }
@@ -691,11 +711,11 @@
       const resp = await fetch(`http://localhost:8000/api/pois/${poiContextMenu.poiId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: poiContextMenu.inputName.trim(), category: poiContextMenu.inputCategory })
+        body: JSON.stringify({ name: poiContextMenu.inputName.trim(), category: poiContextMenu.inputCategory, description: poiContextMenu.inputDescription || '' })
       })
       if (!resp.ok) throw new Error('Failed to update POI')
       businesses = businesses.map(b => b.id === poiContextMenu.poiId
-        ? { ...b, name: poiContextMenu.inputName.trim(), type: poiContextMenu.inputCategory }
+        ? { ...b, name: poiContextMenu.inputName.trim(), type: poiContextMenu.inputCategory, description: poiContextMenu.inputDescription || '' }
         : b)
     } catch (e) {
       alert('Error updating POI: ' + e.message)
@@ -906,11 +926,12 @@
         }
       })
 
-      // Add circle layer for businesses
+      // Add circle layer for OSM businesses only
       map.addLayer({
         id: 'businesses-layer',
         type: 'circle',
         source: 'businesses',
+        filter: ['!=', ['get', 'source'], 'custom'],
         paint: {
           'circle-radius': 6,
           'circle-color': generateColorExpression(),
@@ -919,17 +940,17 @@
         }
       })
 
-      // Custom POI overlay — amber ring to distinguish from OSM data
+      // Custom POI icons — symbol layer with category-specific SVG icons
       map.addLayer({
         id: 'businesses-layer-custom',
-        type: 'circle',
+        type: 'symbol',
         source: 'businesses',
         filter: ['==', ['get', 'source'], 'custom'],
-        paint: {
-          'circle-radius': 9,
-          'circle-color': 'transparent',
-          'circle-stroke-width': 2,
-          'circle-stroke-color': '#f59e0b'
+        layout: {
+          'icon-image': generateIconExpression(),
+          'icon-size': 0.75,
+          'icon-allow-overlap': true,
+          'icon-anchor': 'center'
         }
       })
 
@@ -1214,8 +1235,8 @@
         // Check custom POI markers first
         const poiFeatures = map.queryRenderedFeatures(e.point, { layers: ['businesses-layer-custom'] })
         if (poiFeatures.length > 0) {
-          const { name, type, id } = poiFeatures[0].properties
-          poiContextMenu = { poiId: id, poiName: name, poiCategory: type, lngLat: [e.lngLat.lng, e.lngLat.lat], x: e.point.x, y: e.point.y, mode: 'view' }
+          const { name, type, id, description: poiDesc } = poiFeatures[0].properties
+          poiContextMenu = { poiId: id, poiName: name, poiCategory: type, poiDescription: poiDesc || '', lngLat: [e.lngLat.lng, e.lngLat.lat], x: e.point.x, y: e.point.y, mode: 'view' }
           poiForm = null
           polygonContextMenu = null
           return
@@ -1255,6 +1276,7 @@
           poiForm = { lat: e.lngLat.lat, lng: e.lngLat.lng, x: e.point.x, y: e.point.y }
           poiName = ''
           poiCategory = BUSINESS_CATEGORIES[0].name
+          poiDescription = ''
           polygonContextMenu = null
         }
       })
@@ -1356,6 +1378,12 @@
           <option value={cat.name}>{cat.name}</option>
         {/each}
       </select>
+      <textarea
+        bind:value={poiDescription}
+        placeholder="Description (optional)"
+        rows="2"
+        class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs placeholder-gray-500 focus:border-orange-500 focus:outline-none mb-2 resize-none"
+      ></textarea>
       <button
         onclick={saveCustomPOI}
         disabled={!poiName.trim()}
@@ -1376,7 +1404,11 @@
           <div class="text-xs text-gray-500 mt-0.5">{poiContextMenu.poiCategory}</div>
         </div>
         <button
-          onclick={() => poiContextMenu = { ...poiContextMenu, mode: 'edit', inputName: poiContextMenu.poiName, inputCategory: poiContextMenu.poiCategory }}
+          onclick={() => { detailModal = { type: 'poi', id: poiContextMenu.poiId, name: poiContextMenu.poiName, category: poiContextMenu.poiCategory, description: poiContextMenu.poiDescription, lat: poiContextMenu.lngLat[1], lng: poiContextMenu.lngLat[0] }; poiContextMenu = null }}
+          class="w-full px-3 py-2 text-left text-xs text-gray-300 hover:bg-gray-800 flex items-center gap-2"
+        ><span>📋</span> View Details</button>
+        <button
+          onclick={() => poiContextMenu = { ...poiContextMenu, mode: 'edit', inputName: poiContextMenu.poiName, inputCategory: poiContextMenu.poiCategory, inputDescription: poiContextMenu.poiDescription }}
           class="w-full px-3 py-2 text-left text-xs text-amber-400 hover:bg-gray-800 flex items-center gap-2"
         ><span>✎</span> Edit POI</button>
         <button
@@ -1402,6 +1434,12 @@
               <option value={cat.name}>{cat.name}</option>
             {/each}
           </select>
+          <textarea
+            bind:value={poiContextMenu.inputDescription}
+            placeholder="Description (optional)"
+            rows="2"
+            class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs placeholder-gray-500 focus:border-amber-500 focus:outline-none mb-2 resize-none"
+          ></textarea>
           <div class="flex gap-2">
             <button
               onclick={updateCustomPOI}
@@ -1413,6 +1451,37 @@
         </div>
       {/if}
     </div>
+  {/if}
+
+  <!-- Detail modal for POIs and areas -->
+  {#if detailModal}
+    <DetailModal
+      entity={detailModal}
+      onClose={() => detailModal = null}
+      onSave={async (updated) => {
+        if (detailModal.type === 'poi') {
+          const resp = await fetch(`http://localhost:8000/api/pois/${detailModal.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: updated.name, category: updated.category, description: updated.description })
+          })
+          if (!resp.ok) { alert('Failed to update POI'); return }
+          businesses = businesses.map(b => b.id === detailModal.id
+            ? { ...b, name: updated.name, type: updated.category, description: updated.description }
+            : b)
+          detailModal = { ...detailModal, ...updated }
+        } else {
+          const resp = await fetch(`http://localhost:8000/api/areas/${detailModal.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: updated.name, description: updated.description })
+          })
+          if (!resp.ok) { alert('Failed to update area'); return }
+          await loadCustomAreas()
+          detailModal = { ...detailModal, ...updated }
+        }
+      }}
+    />
   {/if}
 
   <!-- Polygon right-click context menu -->
@@ -1448,6 +1517,10 @@
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Geo Lookup
         </button>
+        <button
+          onclick={() => { detailModal = { type: 'area', id: polygonContextMenu.areaId, name: polygonContextMenu.areaName, description: polygonContextMenu.areaDescription }; polygonContextMenu = null }}
+          class="w-full px-3 py-2 text-left text-xs text-gray-300 hover:bg-gray-800 flex items-center gap-2"
+        ><span>📋</span> View Details</button>
         <button
           onclick={() => polygonContextMenu = { ...polygonContextMenu, mode: 'saved-area-edit', inputName: polygonContextMenu.areaName, inputDescription: polygonContextMenu.areaDescription }}
           class="w-full px-3 py-2 text-left text-xs text-amber-400 hover:bg-gray-800 flex items-center gap-2"

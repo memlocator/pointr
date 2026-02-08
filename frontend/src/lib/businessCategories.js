@@ -54,10 +54,26 @@ function hslToHex(h, s, l) {
 // Generate colors for all categories (excluding 'Other' which gets gray)
 const categoryColors = generateDistinctColors(10)
 
+// Simple SVG icon paths (32x32 viewBox, white strokes, centered at 16,16)
+const CATEGORY_ICONS = {
+  'Food & Dining': `<path d="M10 7v8M8 7v5a2 2 0 004 0V7M20 7v18M22 7v5c0 1.1-.9 2-2 2" stroke="white" stroke-width="2" fill="none" stroke-linecap="round"/>`,
+  'Retail': `<path d="M8 12h16l-1.5 11H9.5L8 12zM11 12V9.5a5 5 0 0110 0V12" stroke="white" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
+  'Healthcare': `<path d="M16 8v16M8 16h16" stroke="white" stroke-width="3.5" stroke-linecap="round"/>`,
+  'Services': `<circle cx="12" cy="12" r="3.5" stroke="white" stroke-width="2" fill="none"/><circle cx="20" cy="12" r="3.5" stroke="white" stroke-width="2" fill="none"/><line x1="14" y1="14" x2="22" y2="24" stroke="white" stroke-width="2" stroke-linecap="round"/><line x1="18" y1="14" x2="10" y2="24" stroke="white" stroke-width="2" stroke-linecap="round"/>`,
+  'Government': `<path d="M5 25h22M7 25V16M14 25V16M25 25V16M16 6l10 10H6z" stroke="white" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
+  'Offices': `<rect x="6" y="13" width="20" height="14" rx="2" stroke="white" stroke-width="2" fill="none"/><path d="M12 13V10a4 4 0 018 0v3" stroke="white" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="6" y1="20" x2="26" y2="20" stroke="white" stroke-width="1.5"/>`,
+  'Transportation': `<rect x="4" y="10" width="24" height="14" rx="3" stroke="white" stroke-width="2" fill="none"/><line x1="4" y1="16" x2="28" y2="16" stroke="white" stroke-width="1.5"/><rect x="7" y="12" width="6" height="3" rx="1" stroke="white" stroke-width="1.5" fill="none"/><rect x="19" y="12" width="6" height="3" rx="1" stroke="white" stroke-width="1.5" fill="none"/>`,
+  'Infrastructure': `<line x1="16" y1="6" x2="16" y2="26" stroke="white" stroke-width="2.5" stroke-linecap="round"/><line x1="9" y1="11" x2="23" y2="11" stroke="white" stroke-width="2" stroke-linecap="round"/><line x1="11" y1="16" x2="21" y2="16" stroke="white" stroke-width="2" stroke-linecap="round"/><line x1="7" y1="26" x2="25" y2="26" stroke="white" stroke-width="2" stroke-linecap="round"/>`,
+  'Automotive': `<rect x="4" y="14" width="24" height="9" rx="2" stroke="white" stroke-width="2" fill="none"/><path d="M7 14l3-6h12l3 6" stroke="white" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="24" r="2.5" stroke="white" stroke-width="2" fill="none"/><circle cx="22" cy="24" r="2.5" stroke="white" stroke-width="2" fill="none"/>`,
+  'Historic & Tourism': `<path d="M16 7l-9 18h18L16 7z" stroke="white" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="8" y1="19" x2="24" y2="19" stroke="white" stroke-width="1.5"/>`,
+  'Other': `<path d="M12 12a4 4 0 118 0c0 3-4 4-4 7" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round"/><circle cx="16" cy="24" r="2" fill="white"/>`
+}
+
 export const BUSINESS_CATEGORIES = [
   {
     name: 'Food & Dining',
     color: categoryColors[0],
+    icon: CATEGORY_ICONS['Food & Dining'],
     types: [
       'restaurant', 'cafe', 'fast_food', 'bar', 'pub', 'food_court',
       'bakery', 'butcher'
@@ -66,6 +82,7 @@ export const BUSINESS_CATEGORIES = [
   {
     name: 'Retail',
     color: categoryColors[1],
+    icon: CATEGORY_ICONS['Retail'],
     types: [
       'supermarket', 'convenience', 'clothes', 'fashion', 'shoes',
       'books', 'gift', 'jewelry', 'toys', 'sports',
@@ -76,6 +93,7 @@ export const BUSINESS_CATEGORIES = [
   {
     name: 'Healthcare',
     color: categoryColors[2],
+    icon: CATEGORY_ICONS['Healthcare'],
     types: [
       'pharmacy', 'clinic', 'doctors', 'dentist', 'hospital', 'veterinary',
       'greengrocer', 'florist', 'garden_centre', 'chemist', 'optician'
@@ -84,6 +102,7 @@ export const BUSINESS_CATEGORIES = [
   {
     name: 'Services',
     color: categoryColors[3],
+    icon: CATEGORY_ICONS['Services'],
     types: [
       'bank', 'bureau_de_change', 'hairdresser', 'beauty'
     ]
@@ -91,6 +110,7 @@ export const BUSINESS_CATEGORIES = [
   {
     name: 'Government',
     color: categoryColors[4],
+    icon: CATEGORY_ICONS['Government'],
     types: [
       'townhall', 'courthouse', 'police', 'fire_station', 'post_office',
       'community_centre', 'social_facility', 'public_building', 'government',
@@ -104,6 +124,7 @@ export const BUSINESS_CATEGORIES = [
   {
     name: 'Offices',
     color: categoryColors[5],
+    icon: CATEGORY_ICONS['Offices'],
     types: [
       'office', 'business'
     ]
@@ -111,6 +132,7 @@ export const BUSINESS_CATEGORIES = [
   {
     name: 'Transportation',
     color: categoryColors[6],
+    icon: CATEGORY_ICONS['Transportation'],
     types: [
       'station', 'bus_station', 'halt', 'ferry_terminal'
     ]
@@ -118,6 +140,7 @@ export const BUSINESS_CATEGORIES = [
   {
     name: 'Infrastructure',
     color: categoryColors[7],
+    icon: CATEGORY_ICONS['Infrastructure'],
     types: [
       // Aviation
       'aerodrome', 'terminal', 'heliport', 'hangar',
@@ -141,6 +164,7 @@ export const BUSINESS_CATEGORIES = [
   {
     name: 'Automotive',
     color: categoryColors[8],
+    icon: CATEGORY_ICONS['Automotive'],
     types: [
       'fuel', 'car_rental', 'car_wash'
     ]
@@ -148,6 +172,7 @@ export const BUSINESS_CATEGORIES = [
   {
     name: 'Historic & Tourism',
     color: categoryColors[9],
+    icon: CATEGORY_ICONS['Historic & Tourism'],
     types: [
       'castle', 'castle:palace', 'palace', 'fort', 'monument', 'memorial',
       'manor', 'citywalls', 'attraction', 'museum',
@@ -157,9 +182,20 @@ export const BUSINESS_CATEGORIES = [
   {
     name: 'Other',
     color: '#9ca3af', // Gray
+    icon: CATEGORY_ICONS['Other'],
     types: [] // Default fallback
   }
 ]
+
+// Generate MapLibre icon-image expression mapping category name → icon image name
+export function generateIconExpression() {
+  const expr = ['match', ['get', 'type']]
+  for (const cat of BUSINESS_CATEGORIES) {
+    expr.push(cat.name, `poi-icon-${cat.name}`)
+  }
+  expr.push('poi-icon-Other')
+  return expr
+}
 
 // Generate MapLibre GL style expression from categories
 export function generateColorExpression() {

@@ -37,6 +37,7 @@ message Business {
   string email = 8;
   string source = 9;
   string id = 10;
+  string description = 11;
 }
 
 message EnrichmentResponse {
@@ -54,6 +55,7 @@ message AddCustomPOIRequest {
   double lat = 3;
   double lng = 4;
   string tags_json = 5;
+  string description = 6;
 }
 
 message CustomPOIResponse {
@@ -64,12 +66,14 @@ message CustomPOIResponse {
   double lng = 5;
   string tags_json = 6;
   string error = 7;
+  string description = 8;
 }
 
 message UpdateCustomPOIRequest {
   string id = 1;
   string name = 2;
   string category = 3;
+  string description = 4;
 }
 
 message DeleteCustomPOIRequest {

@@ -173,5 +173,13 @@
     >
       REFRESH
     </button>
+
+    <a
+      href="http://localhost:8000/docs"
+      target="_blank"
+      rel="noopener"
+      class="w-7 h-7 rounded-full bg-gray-800 border border-gray-700 hover:border-gray-500 flex items-center justify-center text-gray-400 hover:text-gray-200 text-xs font-bold transition-colors"
+      title="API Docs"
+    >?</a>
   </div>
 </div>

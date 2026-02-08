@@ -13,7 +13,43 @@ import json
 import asyncio
 from config import settings
 
-app = FastAPI(title=f"{settings.app_name} API")
+tags_metadata = [
+    {
+        "name": "system",
+        "description": "Health checks and system status across all services.",
+    },
+    {
+        "name": "geo",
+        "description": "Spatial enrichment via Overpass API and geocoding via Nominatim.",
+    },
+    {
+        "name": "custom-pois",
+        "description": "CRUD for custom points of interest stored in PostGIS.",
+    },
+    {
+        "name": "custom-areas",
+        "description": "CRUD for custom annotated polygon areas stored in PostGIS.",
+    },
+    {
+        "name": "recon",
+        "description": "Network reconnaissance: DNS records, SSL certificates, WHOIS, ASN info.",
+    },
+    {
+        "name": "routing",
+        "description": "Driving route calculation via OSRM.",
+    },
+]
+
+app = FastAPI(
+    title=f"{settings.app_name} API",
+    description=(
+        "Geospatial intelligence platform. "
+        "Enrich map polygons with OSM data, manage custom POIs and areas, "
+        "run domain reconnaissance, and calculate routes."
+    ),
+    version="1.0.0",
+    openapi_tags=tags_metadata,
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,8 +64,28 @@ class Coordinate(BaseModel):
     lat: float
     lng: float
 
+    model_config = {
+        "json_schema_extra": {
+            "example": {"lat": 51.5074, "lng": -0.1278}
+        }
+    }
+
 class PolygonRequest(BaseModel):
     coordinates: list[Coordinate]
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "coordinates": [
+                    {"lat": 51.505, "lng": -0.092},
+                    {"lat": 51.510, "lng": -0.092},
+                    {"lat": 51.510, "lng": -0.080},
+                    {"lat": 51.505, "lng": -0.080},
+                    {"lat": 51.505, "lng": -0.092},
+                ]
+            }
+        }
+    }
 
 class Business(BaseModel):
     name: str
@@ -42,6 +98,7 @@ class Business(BaseModel):
     email: str = ''
     source: str = 'osm'
     id: str = ''
+    description: str = ''
 
 class EnrichmentResponse(BaseModel):
     area_km2: float
@@ -55,6 +112,15 @@ class EnrichmentResponse(BaseModel):
 class ReconRequest(BaseModel):
     domains: list[str]
     silent_mode: bool = False
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "domains": ["example.com", "subdomain.example.com"],
+                "silent_mode": False,
+            }
+        }
+    }
 
 class DNSRecord(BaseModel):
     type: str
@@ -132,14 +198,29 @@ class NominatimSearchResponse(BaseModel):
 class CustomPOIRequest(BaseModel):
     name: str
     category: str
+    description: str = ''
     lat: float
     lng: float
     tags: dict = {}
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "name": "HQ Office",
+                "category": "Offices",
+                "description": "Main headquarters building.",
+                "lat": 51.5074,
+                "lng": -0.1278,
+                "tags": {"floor": "3", "access": "private"},
+            }
+        }
+    }
 
 class CustomPOIResponse(BaseModel):
     id: str
     name: str
     category: str
+    description: str = ''
     lat: float
     lng: float
     tags: dict = {}
@@ -150,6 +231,23 @@ class CustomAreaRequest(BaseModel):
     description: str = ''
     coordinates: list[Coordinate]
     metadata: dict = {}
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "name": "Industrial Zone A",
+                "description": "Northern industrial district boundary.",
+                "coordinates": [
+                    {"lat": 51.505, "lng": -0.092},
+                    {"lat": 51.510, "lng": -0.092},
+                    {"lat": 51.510, "lng": -0.080},
+                    {"lat": 51.505, "lng": -0.080},
+                    {"lat": 51.505, "lng": -0.092},
+                ],
+                "metadata": {"zone_type": "industrial", "priority": "high"},
+            }
+        }
+    }
 
 class CustomAreaResponse(BaseModel):
     id: str
@@ -162,15 +260,44 @@ class CustomAreaResponse(BaseModel):
 class UpdateCustomPOIRequest(BaseModel):
     name: str
     category: str
+    description: str = ''
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "name": "HQ Office (Renamed)",
+                "category": "Offices",
+                "description": "Updated description.",
+            }
+        }
+    }
 
 class UpdateCustomAreaRequest(BaseModel):
     name: str
     description: str = ''
 
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "name": "Industrial Zone A (Updated)",
+                "description": "Revised boundary notes.",
+            }
+        }
+    }
+
 # Routing models
 class RouteRequest(BaseModel):
     start: Coordinate
     end: Coordinate
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "start": {"lat": 51.5074, "lng": -0.1278},
+                "end": {"lat": 51.5155, "lng": -0.0922},
+            }
+        }
+    }
 
 class RouteResponse(BaseModel):
     geometry: dict
@@ -178,11 +305,11 @@ class RouteResponse(BaseModel):
     duration_seconds: float
     error: str = ''
 
-@app.get("/")
+@app.get("/", tags=["system"], include_in_schema=False)
 async def root():
     return {"message": f"Welcome to {settings.app_name} API"}
 
-@app.get("/api/health")
+@app.get("/api/health", tags=["system"], summary="Service health")
 async def health_check():
     """Health check endpoint that tests all services"""
     health_status = {
@@ -247,10 +374,15 @@ async def health_check():
 
     return health_status
 
-@app.post("/api/enrich", response_model=EnrichmentResponse)
-@app.post("/api/map/enrich", response_model=EnrichmentResponse)
+@app.post("/api/enrich", response_model=EnrichmentResponse, tags=["geo"], summary="Enrich polygon with OSM data")
+@app.post("/api/map/enrich", response_model=EnrichmentResponse, tags=["geo"], include_in_schema=False)
 async def enrich_polygon(request: PolygonRequest):
-    """Call the geo service via gRPC to enrich polygon data"""
+    """
+    Query Overpass API and PostGIS for all businesses/POIs inside the given polygon.
+
+    Returns area statistics (km², estimated population, region type) and a
+    blended list of OSM and custom POIs with `source` tagged as `"osm"` or `"custom"`.
+    """
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
@@ -275,7 +407,8 @@ async def enrich_polygon(request: PolygonRequest):
                     website=b.website,
                     email=b.email,
                     source=b.source,
-                    id=b.id
+                    id=b.id,
+                    description=b.description
                 )
                 for b in response.businesses
             ]
@@ -291,9 +424,15 @@ async def enrich_polygon(request: PolygonRequest):
     except grpc.RpcError as e:
         raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
 
-@app.post("/api/recon", response_model=ReconResponse)
+@app.post("/api/recon", response_model=ReconResponse, tags=["recon"], summary="Run domain reconnaissance")
 async def run_recon(request: ReconRequest):
-    """Call the recon service via gRPC to perform network reconnaissance"""
+    """
+    Perform full reconnaissance on one or more domains.
+
+    Collects DNS records, SSL certificates, security headers, WHOIS registration
+    data, ASN/BGP info, and subdomain enumeration. Set `silent_mode: true` to
+    suppress passive checks that generate traffic.
+    """
     try:
         # Connect to recon service
         with grpc.insecure_channel(f'{settings.recon_host}:{settings.recon_port}') as channel:
@@ -382,9 +521,14 @@ async def run_recon(request: ReconRequest):
     except grpc.RpcError as e:
         raise HTTPException(status_code=503, detail=f"Recon service error: {e.details()}")
 
-@app.post("/api/recon/stream")
+@app.post("/api/recon/stream", tags=["recon"], summary="Stream recon progress (SSE)")
 async def run_recon_stream(request: ReconRequest):
-    """Stream recon progress and results using Server-Sent Events"""
+    """
+    Same as `/api/recon` but streams progress via **Server-Sent Events**.
+
+    Each event is a JSON object with `type` (`"log"`, `"result"`, `"complete"`, `"error"`)
+    and an optional `result` payload when `type == "result"`.
+    """
     async def event_generator():
         try:
             # Connect to recon service
@@ -491,15 +635,16 @@ async def run_recon_stream(request: ReconRequest):
         }
     )
 
-@app.post("/api/pois", response_model=CustomPOIResponse)
+@app.post("/api/pois", response_model=CustomPOIResponse, tags=["custom-pois"], summary="Create custom POI")
 async def add_custom_poi(request: CustomPOIRequest):
-    """Add a custom POI"""
+    """Create a new custom point of interest. Returns the created POI with its assigned UUID."""
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             response = stub.AddCustomPOI(geo_pb2.AddCustomPOIRequest(
                 name=request.name,
                 category=request.category,
+                description=request.description,
                 lat=request.lat,
                 lng=request.lng,
                 tags_json=json.dumps(request.tags)
@@ -510,6 +655,7 @@ async def add_custom_poi(request: CustomPOIRequest):
                 id=response.id,
                 name=response.name,
                 category=response.category,
+                description=response.description,
                 lat=response.lat,
                 lng=response.lng,
                 tags=json.loads(response.tags_json) if response.tags_json else {}
@@ -518,14 +664,17 @@ async def add_custom_poi(request: CustomPOIRequest):
         raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
 
 
-@app.get("/api/pois", response_model=list[CustomPOIResponse])
+@app.get("/api/pois", response_model=list[CustomPOIResponse], tags=["custom-pois"], summary="List custom POIs")
 async def list_custom_pois(
     min_lat: float | None = None,
     min_lng: float | None = None,
     max_lat: float | None = None,
     max_lng: float | None = None
 ):
-    """List custom POIs, optionally filtered by bounding box"""
+    """
+    List all custom POIs. Optionally filter by bounding box by providing all four
+    `min_lat`, `min_lng`, `max_lat`, `max_lng` query parameters.
+    """
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
@@ -538,6 +687,7 @@ async def list_custom_pois(
             return [
                 CustomPOIResponse(
                     id=p.id, name=p.name, category=p.category,
+                    description=p.description,
                     lat=p.lat, lng=p.lng,
                     tags=json.loads(p.tags_json) if p.tags_json else {}
                 )
@@ -547,16 +697,17 @@ async def list_custom_pois(
         raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
 
 
-@app.patch("/api/pois/{poi_id}", response_model=CustomPOIResponse)
+@app.patch("/api/pois/{poi_id}", response_model=CustomPOIResponse, tags=["custom-pois"], summary="Update custom POI")
 async def update_custom_poi(poi_id: str, request: UpdateCustomPOIRequest):
-    """Rename/recategorize a custom POI"""
+    """Update the name, category, or description of an existing custom POI."""
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             response = stub.UpdateCustomPOI(geo_pb2.UpdateCustomPOIRequest(
                 id=poi_id,
                 name=request.name,
-                category=request.category
+                category=request.category,
+                description=request.description
             ))
             if response.error:
                 raise HTTPException(status_code=404, detail=response.error)
@@ -564,6 +715,7 @@ async def update_custom_poi(poi_id: str, request: UpdateCustomPOIRequest):
                 id=response.id,
                 name=response.name,
                 category=response.category,
+                description=response.description,
                 lat=response.lat,
                 lng=response.lng,
                 tags=json.loads(response.tags_json) if response.tags_json else {}
@@ -572,9 +724,9 @@ async def update_custom_poi(poi_id: str, request: UpdateCustomPOIRequest):
         raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
 
 
-@app.delete("/api/pois/{poi_id}")
+@app.delete("/api/pois/{poi_id}", tags=["custom-pois"], summary="Delete custom POI")
 async def delete_custom_poi(poi_id: str):
-    """Delete a custom POI"""
+    """Permanently delete a custom POI by its UUID."""
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
@@ -586,9 +738,9 @@ async def delete_custom_poi(poi_id: str):
         raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
 
 
-@app.post("/api/areas", response_model=CustomAreaResponse)
+@app.post("/api/areas", response_model=CustomAreaResponse, tags=["custom-areas"], summary="Create custom area")
 async def add_custom_area(request: CustomAreaRequest):
-    """Add a custom annotated area"""
+    """Create a new custom polygon area. The polygon is stored in PostGIS and returned with its UUID."""
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
@@ -612,9 +764,9 @@ async def add_custom_area(request: CustomAreaRequest):
         raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
 
 
-@app.get("/api/areas", response_model=list[CustomAreaResponse])
+@app.get("/api/areas", response_model=list[CustomAreaResponse], tags=["custom-areas"], summary="List custom areas")
 async def list_custom_areas():
-    """List all custom areas"""
+    """List all custom polygon areas with their coordinate rings and metadata."""
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
@@ -631,9 +783,9 @@ async def list_custom_areas():
         raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
 
 
-@app.patch("/api/areas/{area_id}", response_model=CustomAreaResponse)
+@app.patch("/api/areas/{area_id}", response_model=CustomAreaResponse, tags=["custom-areas"], summary="Update custom area")
 async def update_custom_area(area_id: str, request: UpdateCustomAreaRequest):
-    """Rename/update a custom area"""
+    """Update the name or description of an existing custom area."""
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
@@ -655,9 +807,9 @@ async def update_custom_area(area_id: str, request: UpdateCustomAreaRequest):
         raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
 
 
-@app.delete("/api/areas/{area_id}")
+@app.delete("/api/areas/{area_id}", tags=["custom-areas"], summary="Delete custom area")
 async def delete_custom_area(area_id: str):
-    """Delete a custom area"""
+    """Permanently delete a custom area by its UUID."""
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
@@ -669,9 +821,13 @@ async def delete_custom_area(area_id: str):
         raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
 
 
-@app.get("/api/search", response_model=NominatimSearchResponse)
+@app.get("/api/search", response_model=NominatimSearchResponse, tags=["geo"], summary="Geocode location")
 async def search_location(q: str):
-    """Search for locations using Nominatim (OpenStreetMap geocoding)"""
+    """
+    Forward geocoding via Nominatim (OpenStreetMap). Returns up to 5 candidate
+    locations with coordinates, display name, and importance score.
+    Query must be at least 3 characters.
+    """
     if not q or len(q.strip()) < 3:
         raise HTTPException(status_code=400, detail="Query must be at least 3 characters")
 
@@ -710,9 +866,13 @@ async def search_location(q: str):
     except httpx.HTTPError as e:
         raise HTTPException(status_code=503, detail=f"Nominatim service error: {str(e)}")
 
-@app.post("/api/route", response_model=RouteResponse)
+@app.post("/api/route", response_model=RouteResponse, tags=["routing"], summary="Calculate driving route")
 async def get_route(request: RouteRequest):
-    """Get driving route between two points using OSRM"""
+    """
+    Calculate the fastest driving route between two coordinates using OSRM.
+
+    Returns a GeoJSON geometry, total distance in metres, and duration in seconds.
+    """
     try:
         # OSRM expects coordinates as "lng,lat;lng,lat"
         coords = f"{request.start.lng},{request.start.lat};{request.end.lng},{request.end.lat}"
