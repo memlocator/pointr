@@ -26,6 +26,7 @@
     routingEnabled = $bindable(false),
     stops = $bindable([]),
     routeData = $bindable(null),
+    routeType = $bindable('road'),
     pickingStop = $bindable(null),
     enabledSources = $bindable(null)
   } = $props()
@@ -36,6 +37,89 @@
   let mapLoaded = $state(false)
   let stopMarkers = []
   let isDraggingMarker = false
+  let dragIndex = null
+  let suppressNextRouteFit = false
+  let syncStopMarkersOnMove = null
+
+  function isAutoNamedStop(name) {
+    if (!name) return false
+    return /^-?\\d+(\\.\\d+)?,\\s*-?\\d+(\\.\\d+)?$/.test(name)
+  }
+
+  function gradientColor(index, total, startHex, endHex) {
+    if (total <= 1) return startHex
+    const t = index / (total - 1)
+    const s = startHex.replace('#', '')
+    const e = endHex.replace('#', '')
+    const sr = parseInt(s.slice(0, 2), 16)
+    const sg = parseInt(s.slice(2, 4), 16)
+    const sb = parseInt(s.slice(4, 6), 16)
+    const er = parseInt(e.slice(0, 2), 16)
+    const eg = parseInt(e.slice(2, 4), 16)
+    const eb = parseInt(e.slice(4, 6), 16)
+    const r = Math.round(sr + (er - sr) * t)
+    const g = Math.round(sg + (eg - sg) * t)
+    const b = Math.round(sb + (eb - sb) * t)
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+  }
+
+  function attachMarkerDragHandlers(marker, index) {
+    const el = marker.getElement()
+    el.style.touchAction = 'none'
+
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+
+      isDraggingMarker = true
+      dragIndex = index
+      map.dragPan.disable()
+      map.getCanvas().style.cursor = 'grabbing'
+
+      const containerRect = map.getCanvasContainer().getBoundingClientRect()
+      const markerPoint = map.project(marker.getLngLat())
+      const pointerPoint = {
+        x: e.clientX - containerRect.left,
+        y: e.clientY - containerRect.top
+      }
+      const dragOffset = {
+        x: pointerPoint.x - markerPoint.x,
+        y: pointerPoint.y - markerPoint.y
+      }
+
+      const onMove = (ev) => {
+        const rect = map.getCanvasContainer().getBoundingClientRect()
+        const x = ev.clientX - rect.left - dragOffset.x
+        const y = ev.clientY - rect.top - dragOffset.y
+        const pt = map.unproject([x, y])
+        marker.setLngLat([pt.lng, pt.lat])
+      }
+
+      const onUp = () => {
+        const lngLat = marker.getLngLat()
+        const lat = Number(lngLat.lat)
+        const lng = Number(lngLat.lng)
+        const prev = stops[index]
+        const name = isAutoNamedStop(prev?.name)
+          ? `${lat.toFixed(4)}, ${lng.toFixed(4)}`
+          : (prev?.name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`)
+        suppressNextRouteFit = true
+        stops = stops.map((s, i) => i === index ? { ...s, lat, lng, name } : s)
+        isDraggingMarker = false
+        dragIndex = null
+        map.dragPan.enable()
+        map.getCanvas().style.cursor = ''
+        el.removeEventListener('pointermove', onMove)
+        el.removeEventListener('pointerup', onUp)
+        el.removeEventListener('pointercancel', onUp)
+        try { el.releasePointerCapture(e.pointerId) } catch {}
+      }
+      el.setPointerCapture(e.pointerId)
+      el.addEventListener('pointermove', onMove)
+      el.addEventListener('pointerup', onUp)
+      el.addEventListener('pointercancel', onUp)
+    }, { capture: true })
+  }
   let lastRoutePolygonId = null
 
   // Custom areas loaded from DB
@@ -201,18 +285,35 @@
     if (!routeSource) return
 
     // Update route line
-    if (routeData && routeData.geometry) {
+    const isFlight = routeType === 'flight' || routeData?.route_type === 'flight' || routeData?.duration_seconds == null
+    const flightCoords = isFlight
+      ? stops
+        .map((s) => {
+          if (s?.lat == null || s?.lng == null) return null
+          const lat = Number(s.lat)
+          const lng = Number(s.lng)
+          if (Number.isNaN(lat) || Number.isNaN(lng)) return null
+          return [lng, lat]
+        })
+        .filter(Boolean)
+      : null
+
+    if ((isFlight && flightCoords && flightCoords.length >= 2) || (routeData && routeData.geometry)) {
       routeSource.setData({
         type: 'FeatureCollection',
         features: [{
           type: 'Feature',
-          geometry: routeData.geometry
+          geometry: isFlight && flightCoords && flightCoords.length >= 2
+            ? { type: 'LineString', coordinates: flightCoords }
+            : routeData.geometry
         }]
       })
 
       // Only fit bounds on initial route calculation, not on drag-triggered recalculation
-      if (!isDraggingMarker) {
-        const coordinates = routeData.geometry.coordinates
+      if (!isDraggingMarker && !suppressNextRouteFit) {
+        const coordinates = isFlight && flightCoords && flightCoords.length >= 2
+          ? flightCoords
+          : routeData.geometry.coordinates
         const bounds = coordinates.reduce((bounds, coord) => {
           return bounds.extend(coord)
         }, new maplibregl.LngLatBounds(coordinates[0], coordinates[0]))
@@ -220,6 +321,8 @@
         map.fitBounds(bounds, {
           padding: { top: 100, bottom: 100, left: 400, right: 100 }
         })
+      } else if (suppressNextRouteFit) {
+        suppressNextRouteFit = false
       }
     } else {
       routeSource.setData({ type: 'FeatureCollection', features: [] })
@@ -250,7 +353,8 @@
 
     // Create or update markers
     stops.forEach((stop, i) => {
-      const color = i === 0 ? '#22c55e' : i === stops.length - 1 ? '#ef4444' : '#f97316'
+      const pos = stop
+      const color = gradientColor(i, stops.length, '#22c55e', '#ef4444')
 
       if (!stopMarkers[i]) {
         const el = document.createElement('div')
@@ -270,10 +374,16 @@
         el.style.userSelect = 'none'
         el.textContent = String(i + 1)
 
-        if (stop.lat != null) {
+        if (pos?.lat != null) {
+          el.style.pointerEvents = 'auto'
+          el.style.zIndex = '9999'
+          el.addEventListener('pointerdown', (e) => e.stopPropagation(), { capture: true })
+          const lat = Number(pos.lat)
+          const lng = Number(pos.lng)
           const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-            .setLngLat([stop.lng, stop.lat])
+            .setLngLat([lng, lat])
             .addTo(map)
+          attachMarkerDragHandlers(marker, i)
           stopMarkers[i] = marker
         }
       } else {
@@ -287,13 +397,14 @@
           const dot = document.createElement('span')
           dot.className = 'stop-desc-badge'
           dot.style.cssText = 'position:absolute;top:-3px;right:-3px;width:8px;height:8px;border-radius:50%;background:#facc15;border:1px solid white;'
-          el.style.position = 'relative'
           el.appendChild(dot)
         } else if (!stop.description && badge) {
           badge.remove()
         }
-        if (stop.lat != null && !isDraggingMarker) {
-          stopMarkers[i].setLngLat([stop.lng, stop.lat])
+        if (pos?.lat != null && !isDraggingMarker) {
+          const lat = Number(pos.lat)
+          const lng = Number(pos.lng)
+          stopMarkers[i].setLngLat([lng, lat])
         }
       }
     })
@@ -886,6 +997,18 @@
       mapCenter = [map.getCenter().lng, map.getCenter().lat]
       mapZoom = map.getZoom()
     })
+
+    syncStopMarkersOnMove = () => {
+      if (!routingEnabled || isDraggingMarker) return
+      stops.forEach((stop, i) => {
+        if (!stopMarkers[i] || stop?.lat == null || stop?.lng == null) return
+        const lat = Number(stop.lat)
+        const lng = Number(stop.lng)
+        if (Number.isNaN(lat) || Number.isNaN(lng)) return
+        stopMarkers[i].setLngLat([lng, lat])
+      })
+    }
+    map.on('move', syncStopMarkersOnMove)
 
     // Add navigation controls
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
@@ -1484,6 +1607,9 @@
     })
 
     return () => {
+      if (syncStopMarkersOnMove) {
+        map.off('move', syncStopMarkersOnMove)
+      }
       if (circleClickHandler) {
         map.off('click', circleClickHandler)
       }
@@ -1508,6 +1634,7 @@
     bind:routingEnabled
     bind:stops
     bind:routeData
+    bind:routeType
     bind:pickingStop
     onFindAlongRoute={enrichAlongRoute}
   />

@@ -50,8 +50,8 @@
     }
     if (selectedLocation !== null) {
       selectedLocation = {
-        lat: result.lat,
-        lng: result.lon,
+        lat: Number(result.lat),
+        lng: Number(result.lon),
         name: result.display_name
       }
     }

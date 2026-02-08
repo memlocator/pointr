@@ -8,17 +8,18 @@
     routingEnabled = $bindable(false),
     stops = $bindable([]),
     routeData = $bindable(null),
+    routeType = $bindable('road'),
     pickingStop = $bindable(null),
     onFindAlongRoute = null
   } = $props()
 
-  let routeType = $state('road')  // 'road' | 'flight'
   let isCalculating = $state(false)
   let routeError = $state('')
   let activeSearch = $state(null)   // index of stop with open search bar
   let activeDesc = $state(null)     // index of stop with open description editor
   let bufferMeters = $state(250)
   let isFinding = $state(false)
+  let routeRequestId = 0
   let fileInput
   let savedRoutes = $state([])
   let saveRouteName = $state('')
@@ -64,6 +65,7 @@
   }
 
   async function calculateRoute() {
+    const requestId = ++routeRequestId
     isCalculating = true
     routeError = ''
     try {
@@ -73,6 +75,7 @@
         for (let i = 0; i < stops.length - 1; i++) {
           dist += haversineMeters(stops[i].lat, stops[i].lng, stops[i + 1].lat, stops[i + 1].lng)
         }
+        if (requestId !== routeRequestId) return
         routeData = {
           geometry: { type: 'LineString', coordinates: coords },
           distance_meters: dist,
@@ -86,6 +89,7 @@
         })
         if (!response.ok) throw new Error('Failed to calculate route')
         const data = await response.json()
+        if (requestId !== routeRequestId) return
         if (data.error) { routeError = data.error; routeData = null }
         else routeData = data
       }

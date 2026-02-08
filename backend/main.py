@@ -1101,7 +1101,6 @@ async def get_route(request: RouteRequest):
                 )
 
             route = data['routes'][0]
-
             return RouteResponse(
                 geometry=route['geometry'],
                 distance_meters=route['distance'],
