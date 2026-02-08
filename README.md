@@ -10,7 +10,7 @@ A geospatial data platform for discovering, analyzing, and investigating busines
 - **Custom POIs**: Right-click anywhere on the map to add your own points of interest
 - **Custom Areas**: Draw a polygon, enrich it, then save it as a named area — rendered as a dashed amber overlay with label
 - **Location Search**: Search for locations worldwide using OpenStreetMap Nominatim
-- **Routing**: Get driving directions between two points via OSRM
+- **Routing**: Driving (OSRM) and flight modes, draggable waypoints
 - **Color-Coded Markers**: Visual categorization by business type (Food, Retail, Healthcare, Government, etc.)
 - **Amber Ring**: Custom POIs are distinguished from OSM data with an amber outline ring
 - **Contact Badges**: Visual indicators showing which businesses have phone, email, or website data
@@ -42,6 +42,8 @@ A geospatial data platform for discovering, analyzing, and investigating busines
 
 ```
 Frontend (Svelte 5 + MapLibre GL) :5173
+        ↓ REST (via proxy)
+Nginx (Dev proxy :8081 / Prod proxy :8080)
         ↓ REST
 Backend (FastAPI) :8000
         ↓ gRPC
@@ -56,7 +58,8 @@ Grafana :3000
 
 ```mermaid
 graph TD
-  FE[Frontend :5173] -->|REST| BE[Backend :8000]
+  FE[Frontend :5173] -->|REST| NGX[Nginx Proxy :8081/8080]
+  NGX -->|REST| BE[Backend :8000]
   BE -->|gRPC| GEO[Geo Service :50051]
   BE -->|gRPC| RECON[Recon Service :50052]
   GEO -->|SQL| PG[PostGIS :5432]
@@ -71,10 +74,10 @@ graph TD
 
 **Data Flow:**
 
-1. **Map Enrichment**: User draws polygon → Frontend → Backend REST → Geo gRPC → Overpass + PostGIS → blended results
-2. **Custom POI/Area**: Right-click / save area → Frontend → Backend REST → Geo gRPC → PostGIS
-3. **Reconnaissance**: User selects businesses → Frontend → Backend REST → Recon gRPC → free network tools
-4. **Location Search**: User searches → Frontend → Backend REST → Nominatim API
+1. **Map Enrichment**: User draws polygon → Frontend → Nginx proxy → Backend REST → Geo gRPC → Overpass + PostGIS → blended results
+2. **Custom POI/Area**: Right-click / save area → Frontend → Nginx proxy → Backend REST → Geo gRPC → PostGIS
+3. **Reconnaissance**: User selects businesses → Frontend → Nginx proxy → Backend REST → Recon gRPC → free network tools
+4. **Location Search**: User searches → Frontend → Nginx proxy → Backend REST → Nominatim API
 
 ## Project Structure
 
@@ -97,9 +100,12 @@ pointr/
 │   └── Dockerfile
 ├── frontend/                 # Svelte 5 + MapLibre UI — [README](frontend/README.md)
 │   └── src/
-├── docker-compose.yml
+├── docker-compose-dev.yml
+├── docker-compose-prod.yml
 ├── .env                      # Secrets (gitignored)
 ├── .env.example              # Template for secrets
+├── nginx/                    # Dev + prod proxy configs
+├── logging/                  # Grafana/Loki/Promtail configs
 └── README.md
 ```
 
@@ -117,11 +123,29 @@ docker compose -f docker-compose-dev.yml up --build
 Services:
 - Frontend: http://localhost:5173
 - Backend API + docs: http://localhost:8000/docs
+- Dev API proxy (injects `X-User`): http://localhost:8081
 - Adminer (DB): http://localhost:8080
 - Grafana: http://localhost:3000
 - Loki: http://localhost:3100
 - Promtail: http://localhost:9080
- - Dev API proxy (injects `X-User`): http://localhost:8081
+
+Notes:
+- In dev, all frontend API calls go through the Nginx dev proxy at `:8081`, which injects `X-User`.
+- Promtail has no UI. Use Grafana to view logs; Promtail exposes metrics at `http://localhost:9080/metrics`.
+
+### Production
+
+```bash
+cp .env.example .env        # configure credentials
+docker compose -f docker-compose-prod.yml up --build
+```
+
+Services:
+- App (Nginx): http://localhost:8080
+- Backend API + docs: http://localhost:8000/docs
+- Grafana: http://localhost:3000
+
+Grafana login (default): `admin` / `admin` (configurable via env vars).
 
 ## Configuration
 
