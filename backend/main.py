@@ -287,14 +287,16 @@ class UpdateCustomAreaRequest(BaseModel):
 
 # Routing models
 class RouteRequest(BaseModel):
-    start: Coordinate
-    end: Coordinate
+    waypoints: list[Coordinate]
 
     model_config = {
         "json_schema_extra": {
             "example": {
-                "start": {"lat": 51.5074, "lng": -0.1278},
-                "end": {"lat": 51.5155, "lng": -0.0922},
+                "waypoints": [
+                    {"lat": 51.5074, "lng": -0.1278},
+                    {"lat": 51.5115, "lng": -0.1200},
+                    {"lat": 51.5155, "lng": -0.0922},
+                ]
             }
         }
     }
@@ -869,13 +871,16 @@ async def search_location(q: str):
 @app.post("/api/route", response_model=RouteResponse, tags=["routing"], summary="Calculate driving route")
 async def get_route(request: RouteRequest):
     """
-    Calculate the fastest driving route between two coordinates using OSRM.
+    Calculate the fastest driving route through two or more waypoints using OSRM.
 
     Returns a GeoJSON geometry, total distance in metres, and duration in seconds.
+    Requires at least 2 waypoints.
     """
+    if len(request.waypoints) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 waypoints required")
     try:
-        # OSRM expects coordinates as "lng,lat;lng,lat"
-        coords = f"{request.start.lng},{request.start.lat};{request.end.lng},{request.end.lat}"
+        # OSRM expects coordinates as "lng,lat;lng,lat;..."
+        coords = ";".join(f"{w.lng},{w.lat}" for w in request.waypoints)
 
         async with httpx.AsyncClient() as client:
             response = await client.get(

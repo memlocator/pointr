@@ -22,8 +22,7 @@
     heatmapEnabled = $bindable(false),
     heatmapCategory = $bindable(''),
     routingEnabled = $bindable(false),
-    routeStart = $bindable(null),
-    routeEnd = $bindable(null),
+    stops = $bindable([]),
     routeData = $bindable(null)
   } = $props()
   let mapContainer
@@ -31,8 +30,8 @@
   let draw
   let isEnriching = $state(false)
   let mapLoaded = $state(false)
-  let startMarker = null
-  let endMarker = null
+  let stopMarkers = []
+  let isDraggingMarker = false
 
   // Custom areas loaded from DB
   let customAreas = $state([])
@@ -194,123 +193,94 @@
         }]
       })
 
-      // Fit map to route bounds
-      const coordinates = routeData.geometry.coordinates
-      const bounds = coordinates.reduce((bounds, coord) => {
-        return bounds.extend(coord)
-      }, new maplibregl.LngLatBounds(coordinates[0], coordinates[0]))
+      // Only fit bounds on initial route calculation, not on drag-triggered recalculation
+      if (!isDraggingMarker) {
+        const coordinates = routeData.geometry.coordinates
+        const bounds = coordinates.reduce((bounds, coord) => {
+          return bounds.extend(coord)
+        }, new maplibregl.LngLatBounds(coordinates[0], coordinates[0]))
 
-      map.fitBounds(bounds, {
-        padding: { top: 100, bottom: 100, left: 400, right: 100 }
-      })
+        map.fitBounds(bounds, {
+          padding: { top: 100, bottom: 100, left: 400, right: 100 }
+        })
+      }
     } else {
       routeSource.setData({ type: 'FeatureCollection', features: [] })
+      map.getSource('route-bbox')?.setData({ type: 'FeatureCollection', features: [] })
     }
   })
 
-  // Update draggable markers
+  // Sync stop markers to map
+  // NOTE: Marker dragging has been stubborn. Attempts so far:
+  // 1. MapLibre `draggable: true` with map.dragPan.disable() on dragstart — map still panned
+  // 2. Added mousedown/touchstart stopPropagation on custom element — no change
+  // 3. Switched to manual pointerdown + setPointerCapture + pointermove/pointerup — map still panned
+  // Hypothesis: something (MapboxDraw? MapLibre canvas-container?) captures pointer events
+  // before our element, or the custom element isn't in the hit-test path despite being visible.
   $effect(() => {
     if (!mapLoaded || !map) return
 
-    // Clean up markers if routing is disabled
-    if (!routingEnabled) {
-      if (startMarker) {
-        startMarker.remove()
-        startMarker = null
-      }
-      if (endMarker) {
-        endMarker.remove()
-        endMarker = null
-      }
+    // Remove all markers when routing disabled
+    if (!routingEnabled || stops.length === 0) {
+      stopMarkers.forEach(m => m.remove())
+      stopMarkers = []
       return
     }
 
-    // Create or update start marker
-    if (routeStart) {
-      if (!startMarker) {
-        // Create marker element
-        const el = document.createElement('div')
-        el.className = 'route-marker-start'
-        el.style.width = '24px'
-        el.style.height = '24px'
-        el.style.borderRadius = '50%'
-        el.style.backgroundColor = '#22c55e'
-        el.style.border = '3px solid white'
-        el.style.cursor = 'grab'
-        el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.4)'
-        el.style.transition = 'transform 0.1s'
-
-        startMarker = new maplibregl.Marker({
-          element: el,
-          draggable: true,
-          anchor: 'center'
-        })
-          .setLngLat([routeStart.lng, routeStart.lat])
-          .addTo(map)
-
-        startMarker.on('dragstart', () => {
-          el.style.cursor = 'grabbing'
-          el.style.transform = 'scale(1.2)'
-          map.dragPan.disable()
-        })
-
-        startMarker.on('drag', () => {
-          // Visual feedback during drag
-        })
-
-        startMarker.on('dragend', () => {
-          el.style.cursor = 'grab'
-          el.style.transform = 'scale(1)'
-          map.dragPan.enable()
-
-          const lngLat = startMarker.getLngLat()
-          routeStart = {
-            lat: lngLat.lat,
-            lng: lngLat.lng,
-            name: `${lngLat.lat.toFixed(4)}, ${lngLat.lng.toFixed(4)}`
-          }
-        })
-      } else {
-        startMarker.setLngLat([routeStart.lng, routeStart.lat])
-      }
-    } else if (startMarker) {
-      startMarker.remove()
-      startMarker = null
+    // Remove excess markers
+    while (stopMarkers.length > stops.length) {
+      stopMarkers.pop().remove()
     }
 
-    // Create or update end marker
-    if (routeEnd) {
-      if (!endMarker) {
-        // Create marker element
+    // Create or update markers
+    stops.forEach((stop, i) => {
+      const color = i === 0 ? '#22c55e' : i === stops.length - 1 ? '#ef4444' : '#f97316'
+
+      if (!stopMarkers[i]) {
         const el = document.createElement('div')
-        el.className = 'route-marker-end'
-        el.style.width = '20px'
-        el.style.height = '20px'
+        el.style.width = '22px'
+        el.style.height = '22px'
         el.style.borderRadius = '50%'
-        el.style.backgroundColor = '#ef4444'
-        el.style.border = '3px solid white'
+        el.style.backgroundColor = color
+        el.style.border = '2px solid white'
         el.style.cursor = 'grab'
-        el.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)'
+        el.style.boxShadow = '0 2px 6px rgba(0,0,0,0.5)'
+        el.style.display = 'flex'
+        el.style.alignItems = 'center'
+        el.style.justifyContent = 'center'
+        el.style.fontSize = '10px'
+        el.style.fontWeight = '700'
+        el.style.color = 'white'
+        el.style.userSelect = 'none'
+        el.textContent = String(i + 1)
 
-        endMarker = new maplibregl.Marker({ element: el, draggable: true })
-          .setLngLat([routeEnd.lng, routeEnd.lat])
-          .addTo(map)
-
-        endMarker.on('dragend', () => {
-          const lngLat = endMarker.getLngLat()
-          routeEnd = {
-            lat: lngLat.lat,
-            lng: lngLat.lng,
-            name: `${lngLat.lat.toFixed(4)}, ${lngLat.lng.toFixed(4)}`
-          }
-        })
+        if (stop.lat != null) {
+          const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+            .setLngLat([stop.lng, stop.lat])
+            .addTo(map)
+          stopMarkers[i] = marker
+        }
       } else {
-        endMarker.setLngLat([routeEnd.lng, routeEnd.lat])
+        // Update existing marker
+        const el = stopMarkers[i].getElement()
+        el.style.backgroundColor = color
+        el.textContent = String(i + 1)
+        // Description badge
+        const badge = el.querySelector('.stop-desc-badge')
+        if (stop.description && !badge) {
+          const dot = document.createElement('span')
+          dot.className = 'stop-desc-badge'
+          dot.style.cssText = 'position:absolute;top:-3px;right:-3px;width:8px;height:8px;border-radius:50%;background:#facc15;border:1px solid white;'
+          el.style.position = 'relative'
+          el.appendChild(dot)
+        } else if (!stop.description && badge) {
+          badge.remove()
+        }
+        if (stop.lat != null && !isDraggingMarker) {
+          stopMarkers[i].setLngLat([stop.lng, stop.lat])
+        }
       }
-    } else if (endMarker) {
-      endMarker.remove()
-      endMarker = null
-    }
+    })
   })
 
   // Sync custom areas to map
@@ -583,6 +553,29 @@
   function mergeBusinesses(existing, incoming) {
     const seen = new Set(existing.map(b => `${b.lat}|${b.lng}`))
     return [...existing, ...incoming.filter(b => !seen.has(`${b.lat}|${b.lng}`))]
+  }
+
+  async function enrichAlongRoute(bboxCoords) {
+    // Draw the bbox on the map
+    map.getSource('route-bbox').setData({
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        geometry: {
+          type: 'Polygon',
+          coordinates: [bboxCoords.map(c => [c.lng, c.lat])]
+        }
+      }]
+    })
+    isEnriching = true
+    try {
+      const results = await enrichCoordinates(bboxCoords)
+      businesses = mergeBusinesses(businesses, results)
+    } catch (e) {
+      alert('Route search failed: ' + e.message)
+    } finally {
+      isEnriching = false
+    }
   }
 
   async function polygonContextGeoLookup() {
@@ -1097,6 +1090,23 @@
         }
       })
 
+      // Add route bbox source and dashed outline layer
+      map.addSource('route-bbox', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] }
+      })
+      map.addLayer({
+        id: 'route-bbox-outline',
+        type: 'line',
+        source: 'route-bbox',
+        paint: {
+          'line-color': '#f97316',
+          'line-width': 2,
+          'line-opacity': 0.6,
+          'line-dasharray': [4, 4]
+        }
+      })
+
       // Add custom areas source and layers
       map.addSource('custom-areas', {
         type: 'geojson',
@@ -1194,10 +1204,9 @@
 
         const { lng, lat } = e.lngLat
 
-        if (!routeStart) {
-          routeStart = { lat, lng, name: `${lat.toFixed(4)}, ${lng.toFixed(4)}` }
-        } else if (!routeEnd) {
-          routeEnd = { lat, lng, name: `${lat.toFixed(4)}, ${lng.toFixed(4)}` }
+        // Add a new stop at end (max 10)
+        if (stops.length < 10) {
+          stops = [...stops, { lat, lng, name: `${lat.toFixed(4)}, ${lng.toFixed(4)}`, description: '' }]
         }
       }
 
@@ -1307,14 +1316,8 @@
       window.removeEventListener('keyup', handleKeyUp)
 
       // Clean up route markers
-      if (startMarker) {
-        startMarker.remove()
-        startMarker = null
-      }
-      if (endMarker) {
-        endMarker.remove()
-        endMarker = null
-      }
+      stopMarkers.forEach(m => m.remove())
+      stopMarkers = []
 
       map.remove()
     }
@@ -1325,9 +1328,9 @@
   <!-- Routing Panel -->
   <RoutingPanel
     bind:routingEnabled
-    bind:routeStart
-    bind:routeEnd
+    bind:stops
     bind:routeData
+    onFindAlongRoute={enrichAlongRoute}
   />
 
   <!-- Map Container -->
