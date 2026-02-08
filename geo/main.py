@@ -62,6 +62,15 @@ def init_db():
             CREATE INDEX IF NOT EXISTS custom_areas_geom_idx
                 ON custom_areas USING GIST (geom)
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS saved_routes (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name TEXT NOT NULL,
+                route_type TEXT NOT NULL DEFAULT 'road',
+                stops JSONB NOT NULL DEFAULT '[]'::jsonb,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """)
         conn.commit()
     print("Database initialized")
 
@@ -321,6 +330,47 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
             return geo_pb2.ListCustomAreasResponse(areas=areas, error='')
         except Exception as e:
             return geo_pb2.ListCustomAreasResponse(error=str(e))
+
+    def AddRoute(self, request, context):
+        try:
+            with get_pool().connection() as conn:
+                row = conn.execute("""
+                    INSERT INTO saved_routes (name, route_type, stops)
+                    VALUES (%s, %s, %s::jsonb)
+                    RETURNING id::text, name, route_type, stops::text AS stops_json, created_at::text
+                """, (request.name, request.route_type, request.stops_json)).fetchone()
+                conn.commit()
+            return geo_pb2.RouteResponse(
+                id=row['id'], name=row['name'], route_type=row['route_type'],
+                stops_json=row['stops_json'], created_at=row['created_at']
+            )
+        except Exception as e:
+            return geo_pb2.RouteResponse(error=str(e))
+
+    def ListRoutes(self, request, context):
+        try:
+            with get_pool().connection() as conn:
+                rows = conn.execute("""
+                    SELECT id::text, name, route_type, stops::text AS stops_json, created_at::text
+                    FROM saved_routes ORDER BY created_at DESC
+                """).fetchall()
+            return geo_pb2.ListRoutesResponse(routes=[
+                geo_pb2.RouteResponse(
+                    id=r['id'], name=r['name'], route_type=r['route_type'],
+                    stops_json=r['stops_json'], created_at=r['created_at']
+                ) for r in rows
+            ])
+        except Exception as e:
+            return geo_pb2.ListRoutesResponse(error=str(e))
+
+    def DeleteRoute(self, request, context):
+        try:
+            with get_pool().connection() as conn:
+                conn.execute("DELETE FROM saved_routes WHERE id = %s::uuid", (request.id,))
+                conn.commit()
+            return geo_pb2.DeleteResponse(success=True)
+        except Exception as e:
+            return geo_pb2.DeleteResponse(success=False, error=str(e))
 
     def _get_custom_pois_in_polygon(self, coords) -> list:
         """Query PostGIS for custom POIs within a polygon using ST_Within"""

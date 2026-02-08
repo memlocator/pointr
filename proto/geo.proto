@@ -15,6 +15,10 @@ service GeoDataService {
   rpc UpdateCustomArea(UpdateCustomAreaRequest) returns (CustomAreaResponse);
   rpc DeleteCustomArea(DeleteCustomAreaRequest) returns (DeleteResponse);
   rpc ListCustomAreas(ListCustomAreasRequest) returns (ListCustomAreasResponse);
+
+  rpc AddRoute(AddRouteRequest) returns (RouteResponse);
+  rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse);
+  rpc DeleteRoute(DeleteRouteRequest) returns (DeleteResponse);
 }
 
 message Coordinate {
@@ -128,6 +132,32 @@ message ListCustomAreasRequest {}
 message ListCustomAreasResponse {
   repeated CustomAreaResponse areas = 1;
   string error = 2;
+}
+
+message AddRouteRequest {
+  string name = 1;
+  string route_type = 2;
+  string stops_json = 3;
+}
+
+message RouteResponse {
+  string id = 1;
+  string name = 2;
+  string route_type = 3;
+  string stops_json = 4;
+  string created_at = 5;
+  string error = 6;
+}
+
+message ListRoutesRequest {}
+
+message ListRoutesResponse {
+  repeated RouteResponse routes = 1;
+  string error = 2;
+}
+
+message DeleteRouteRequest {
+  string id = 1;
 }
 
 message HealthRequest {}

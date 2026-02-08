@@ -307,6 +307,24 @@ class RouteResponse(BaseModel):
     duration_seconds: float
     error: str = ''
 
+class RouteStop(BaseModel):
+    lat: float | None = None
+    lng: float | None = None
+    name: str = ''
+    description: str = ''
+
+class SaveRouteRequest(BaseModel):
+    name: str
+    route_type: str = 'road'
+    stops: list[RouteStop]
+
+class SavedRouteResponse(BaseModel):
+    id: str
+    name: str
+    route_type: str
+    stops: list[RouteStop]
+    created_at: str
+
 @app.get("/", tags=["system"], include_in_schema=False)
 async def root():
     return {"message": f"Welcome to {settings.app_name} API"}
@@ -916,6 +934,63 @@ async def get_route(request: RouteRequest):
 
     except httpx.HTTPError as e:
         raise HTTPException(status_code=503, detail=f"OSRM service error: {str(e)}")
+
+
+@app.post("/api/routes/saved", response_model=SavedRouteResponse, tags=["routing"], summary="Save route")
+async def save_route(request: SaveRouteRequest):
+    """Save a named route with stops to the database."""
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            response = stub.AddRoute(geo_pb2.AddRouteRequest(
+                name=request.name,
+                route_type=request.route_type,
+                stops_json=json.dumps([s.model_dump() for s in request.stops])
+            ))
+            if response.error:
+                raise HTTPException(status_code=400, detail=response.error)
+            return SavedRouteResponse(
+                id=response.id, name=response.name, route_type=response.route_type,
+                stops=[RouteStop(**s) for s in json.loads(response.stops_json)],
+                created_at=response.created_at
+            )
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
+
+@app.get("/api/routes/saved", response_model=list[SavedRouteResponse], tags=["routing"], summary="List saved routes")
+async def list_saved_routes():
+    """List all saved routes ordered by creation date descending."""
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            response = stub.ListRoutes(geo_pb2.ListRoutesRequest())
+            if response.error:
+                raise HTTPException(status_code=500, detail=response.error)
+            return [
+                SavedRouteResponse(
+                    id=r.id, name=r.name, route_type=r.route_type,
+                    stops=[RouteStop(**s) for s in json.loads(r.stops_json)],
+                    created_at=r.created_at
+                ) for r in response.routes
+            ]
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
+
+@app.delete("/api/routes/saved/{route_id}", tags=["routing"], summary="Delete saved route")
+async def delete_saved_route(route_id: str):
+    """Delete a saved route by ID."""
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            response = stub.DeleteRoute(geo_pb2.DeleteRouteRequest(id=route_id))
+            if not response.success:
+                raise HTTPException(status_code=400, detail=response.error)
+            return {"success": True}
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
 
 def main():
     uvicorn.run("main:app", host=settings.backend_host, port=settings.backend_port, reload=True)

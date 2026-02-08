@@ -16,7 +16,9 @@
   "dependencies": {
     "@mapbox/mapbox-gl-draw": "^1.5.1",
     "@tailwindcss/vite": "^4.1.18",
+    "@turf/buffer": "^7.3.4",
     "@turf/circle": "^7.1.0",
+    "@turf/simplify": "^7.3.4",
     "maplibre-gl": "^5.17.0",
     "tailwindcss": "^4.1.18"
   }

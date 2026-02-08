@@ -33,6 +33,7 @@
   let mapLoaded = $state(false)
   let stopMarkers = []
   let isDraggingMarker = false
+  let lastRoutePolygonId = null
 
   // Custom areas loaded from DB
   let customAreas = $state([])
@@ -207,7 +208,6 @@
       }
     } else {
       routeSource.setData({ type: 'FeatureCollection', features: [] })
-      map.getSource('route-bbox')?.setData({ type: 'FeatureCollection', features: [] })
     }
   })
 
@@ -562,21 +562,31 @@
     return [...existing, ...incoming.filter(b => !seen.has(`${b.lat}|${b.lng}`))]
   }
 
-  async function enrichAlongRoute(bboxCoords) {
-    // Draw the bbox on the map
-    map.getSource('route-bbox').setData({
-      type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: {
-          type: 'Polygon',
-          coordinates: [bboxCoords.map(c => [c.lng, c.lat])]
-        }
-      }]
-    })
+  async function enrichAlongRoute(polygonCoords) {
+    // Remove previous unsaved route polygon
+    if (lastRoutePolygonId && !drawnPolygonSaves[lastRoutePolygonId]) {
+      draw.delete(lastRoutePolygonId)
+      savePolygons()
+    }
+
+    // Add buffer polygon to draw so it can be saved/edited like any other polygon
+    const feature = {
+      type: 'Feature',
+      geometry: {
+        type: 'Polygon',
+        coordinates: [polygonCoords.map(c => [c.lng, c.lat])]
+      }
+    }
+    const ids = draw.add(feature)
+    lastRoutePolygonId = ids[0]
+    savePolygons()
+
+    // Show hatch overlay on the unsaved buffer polygon
+    map.getSource('route-buffer-overlay')?.setData({ type: 'FeatureCollection', features: [{ ...feature, id: lastRoutePolygonId }] })
+
     isEnriching = true
     try {
-      const results = await enrichCoordinates(bboxCoords)
+      const results = await enrichCoordinates(polygonCoords)
       businesses = mergeBusinesses(businesses, results)
     } catch (e) {
       alert('Route search failed: ' + e.message)
@@ -612,6 +622,11 @@
       if (!resp.ok) throw new Error('Failed to save area')
       const saved = await resp.json()
       drawnPolygonSaves = { ...drawnPolygonSaves, [featureId]: { id: saved.id, name: saved.name } }
+      // Clear hatch overlay if this was the route buffer polygon
+      if (featureId === lastRoutePolygonId) {
+        lastRoutePolygonId = null
+        map.getSource('route-buffer-overlay')?.setData({ type: 'FeatureCollection', features: [] })
+      }
       // Remove the draw feature — it's now represented by the amber area overlay
       draw.delete(featureId)
       savePolygons()
@@ -833,8 +848,22 @@
       savePolygons()
       isDrawingPolygon = false
     })
-    map.on('draw.update', savePolygons)
-    map.on('draw.delete', savePolygons)
+    map.on('draw.update', (e) => {
+      savePolygons()
+      // Sync route buffer hatch overlay if its geometry changed
+      if (lastRoutePolygonId && e.features.some(f => f.id === lastRoutePolygonId)) {
+        const f = draw.get(lastRoutePolygonId)
+        if (f) map.getSource('route-buffer-overlay')?.setData({ type: 'FeatureCollection', features: [f] })
+      }
+    })
+    map.on('draw.delete', (e) => {
+      savePolygons()
+      // Clear overlay if route buffer was deleted
+      if (lastRoutePolygonId && e.features.some(f => f.id === lastRoutePolygonId)) {
+        lastRoutePolygonId = null
+        map.getSource('route-buffer-overlay')?.setData({ type: 'FeatureCollection', features: [] })
+      }
+    })
 
     // Handle Ctrl key for enabling/disabling draw interaction
     let ctrlPressed = false
@@ -875,6 +904,37 @@
 
     // Add businesses source and layer after map loads
     map.on('load', () => {
+      // Create diagonal hatch pattern for route buffer overlay
+      const sz = 10
+      const patternData = new Uint8Array(sz * sz * 4)
+      for (let y = 0; y < sz; y++) {
+        for (let x = 0; x < sz; x++) {
+          const i = (y * sz + x) * 4
+          const onLine = ((x + y) % sz) < 2
+          patternData[i] = 249; patternData[i+1] = 115; patternData[i+2] = 22
+          patternData[i+3] = onLine ? 100 : 0
+        }
+      }
+      map.addImage('route-hatch', { width: sz, height: sz, data: patternData })
+
+      // Add route buffer overlay source (for hatch pattern on unsaved buffer polygon)
+      map.addSource('route-buffer-overlay', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] }
+      })
+      map.addLayer({
+        id: 'route-buffer-hatch',
+        type: 'fill',
+        source: 'route-buffer-overlay',
+        paint: { 'fill-pattern': 'route-buffer-hatch' }
+      })
+      map.addLayer({
+        id: 'route-buffer-hatch-outline',
+        type: 'line',
+        source: 'route-buffer-overlay',
+        paint: { 'line-color': '#f97316', 'line-width': 1.5, 'line-opacity': 0.7, 'line-dasharray': [4, 3] }
+      })
+
       // Add preview circle source for circle drawing
       map.addSource('preview-circle', {
         type: 'geojson',
@@ -1097,22 +1157,6 @@
         }
       })
 
-      // Add route bbox source and dashed outline layer
-      map.addSource('route-bbox', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] }
-      })
-      map.addLayer({
-        id: 'route-bbox-outline',
-        type: 'line',
-        source: 'route-bbox',
-        paint: {
-          'line-color': '#f97316',
-          'line-width': 2,
-          'line-opacity': 0.6,
-          'line-dasharray': [4, 4]
-        }
-      })
 
       // Add custom areas source and layers
       map.addSource('custom-areas', {
@@ -1253,14 +1297,26 @@
       map.on('contextmenu', (e) => {
         e.preventDefault()
         const clickPt = [e.lngLat.lng, e.lngLat.lat]
+        const altClick = e.originalEvent.altKey
 
         // Check custom POI markers first
         const poiFeatures = map.queryRenderedFeatures(e.point, { layers: ['businesses-layer-custom'] })
-        if (poiFeatures.length > 0) {
+        if (poiFeatures.length > 0 && !altClick) {
           const { name, type, id, description: poiDesc } = poiFeatures[0].properties
           poiContextMenu = { poiId: id, poiName: name, poiCategory: type, poiDescription: poiDesc || '', lngLat: [e.lngLat.lng, e.lngLat.lat], x: e.point.x, y: e.point.y, mode: 'view' }
           poiForm = null
           polygonContextMenu = null
+          return
+        }
+
+        // Alt+right-click always opens POI form, skipping area/polygon checks
+        if (altClick) {
+          poiForm = { lat: e.lngLat.lat, lng: e.lngLat.lng, x: e.point.x, y: e.point.y }
+          poiName = ''
+          poiCategory = BUSINESS_CATEGORIES[0].name
+          poiDescription = ''
+          polygonContextMenu = null
+          poiContextMenu = null
           return
         }
 

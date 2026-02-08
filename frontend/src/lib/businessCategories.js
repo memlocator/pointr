@@ -66,6 +66,8 @@ const CATEGORY_ICONS = {
   'Infrastructure': `<line x1="16" y1="6" x2="16" y2="26" stroke="white" stroke-width="2.5" stroke-linecap="round"/><line x1="9" y1="11" x2="23" y2="11" stroke="white" stroke-width="2" stroke-linecap="round"/><line x1="11" y1="16" x2="21" y2="16" stroke="white" stroke-width="2" stroke-linecap="round"/><line x1="7" y1="26" x2="25" y2="26" stroke="white" stroke-width="2" stroke-linecap="round"/>`,
   'Automotive': `<rect x="4" y="14" width="24" height="9" rx="2" stroke="white" stroke-width="2" fill="none"/><path d="M7 14l3-6h12l3 6" stroke="white" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="24" r="2.5" stroke="white" stroke-width="2" fill="none"/><circle cx="22" cy="24" r="2.5" stroke="white" stroke-width="2" fill="none"/>`,
   'Historic & Tourism': `<path d="M16 7l-9 18h18L16 7z" stroke="white" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="8" y1="19" x2="24" y2="19" stroke="white" stroke-width="1.5"/>`,
+  'Hazard': `<path d="M16 7l-9 18h18L16 7z" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="16" y1="13" x2="16" y2="19" stroke="white" stroke-width="2.5" stroke-linecap="round"/><circle cx="16" cy="22.5" r="1.5" fill="white"/>`,
+  'Note': `<path d="M9 7h14v14l-4 4H9a2 2 0 01-2-2V9a2 2 0 012-2z" stroke="white" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 21v-4h4" stroke="white" stroke-width="1.5" fill="none" stroke-linecap="round"/><line x1="12" y1="12" x2="20" y2="12" stroke="white" stroke-width="1.5" stroke-linecap="round"/><line x1="12" y1="16" x2="17" y2="16" stroke="white" stroke-width="1.5" stroke-linecap="round"/>`,
   'Other': `<path d="M12 12a4 4 0 118 0c0 3-4 4-4 7" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round"/><circle cx="16" cy="24" r="2" fill="white"/>`
 }
 
@@ -178,6 +180,18 @@ export const BUSINESS_CATEGORIES = [
       'manor', 'citywalls', 'attraction', 'museum',
       'school', 'university', 'college', 'kindergarten'
     ]
+  },
+  {
+    name: 'Hazard',
+    color: '#ef4444',
+    icon: CATEGORY_ICONS['Hazard'],
+    types: ['hazard']
+  },
+  {
+    name: 'Note',
+    color: '#eab308',
+    icon: CATEGORY_ICONS['Note'],
+    types: ['note']
   },
   {
     name: 'Other',

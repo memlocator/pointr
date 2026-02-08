@@ -1,5 +1,7 @@
 <script>
   import LocationSearchBar from './LocationSearchBar.svelte'
+  import buffer from '@turf/buffer'
+  import simplify from '@turf/simplify'
 
   let {
     routingEnabled = $bindable(false),
@@ -17,6 +19,9 @@
   let bufferMeters = $state(250)
   let isFinding = $state(false)
   let fileInput
+  let savedRoutes = $state([])
+  let saveRouteName = $state('')
+  let showSaved = $state(false)
 
   // Ensure at least 2 stops exist when panel opens
   $effect(() => {
@@ -203,34 +208,73 @@
     reader.readAsText(file)
   }
 
+  // --- Saved routes ---
+  async function loadSavedRoutes() {
+    try {
+      const res = await fetch('http://localhost:8000/api/routes/saved')
+      if (res.ok) savedRoutes = await res.json()
+    } catch {}
+  }
+
+  async function saveRoute() {
+    if (!saveRouteName.trim()) return
+    try {
+      const res = await fetch('http://localhost:8000/api/routes/saved', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: saveRouteName.trim(), route_type: routeType, stops })
+      })
+      if (res.ok) {
+        saveRouteName = ''
+        await loadSavedRoutes()
+      }
+    } catch {}
+  }
+
+  async function deleteSavedRoute(id) {
+    try {
+      await fetch(`http://localhost:8000/api/routes/saved/${id}`, { method: 'DELETE' })
+      savedRoutes = savedRoutes.filter(r => r.id !== id)
+    } catch {}
+  }
+
+  function loadRoute(route) {
+    stops = route.stops
+    routeType = route.route_type
+    routeData = null
+  }
+
+  $effect(() => {
+    if (routingEnabled && showSaved) loadSavedRoutes()
+  })
+
   // --- Find along route ---
-  function computeRouteBbox(padding) {
-    const pts = stops.filter(s => s.lat != null)
-    if (pts.length === 0) return null
-    let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity
-    for (const s of pts) {
-      if (s.lat < minLat) minLat = s.lat
-      if (s.lat > maxLat) maxLat = s.lat
-      if (s.lng < minLng) minLng = s.lng
-      if (s.lng > maxLng) maxLng = s.lng
+  function computeRouteBuffer(radiusMeters) {
+    // Use route geometry if available, otherwise fall back to straight lines between stops
+    const line = routeData?.geometry ?? {
+      type: 'LineString',
+      coordinates: stops.filter(s => s.lat != null).map(s => [s.lng, s.lat])
     }
-    const latPad = padding / 111000
-    const lngPad = padding / (111000 * Math.cos(((minLat + maxLat) / 2) * Math.PI / 180))
-    return [
-      { lat: minLat - latPad, lng: minLng - lngPad },
-      { lat: maxLat + latPad, lng: minLng - lngPad },
-      { lat: maxLat + latPad, lng: maxLng + lngPad },
-      { lat: minLat - latPad, lng: maxLng + lngPad },
-      { lat: minLat - latPad, lng: minLng - lngPad }
-    ]
+    if (line.coordinates.length < 2) return null
+
+    // Simplify to remove redundant collinear points (tolerance in degrees ~= 5m)
+    const simplified = simplify(
+      { type: 'Feature', geometry: line },
+      { tolerance: 0.00005, highQuality: false }
+    )
+
+    const buffered = buffer(simplified, radiusMeters, { units: 'meters' })
+    if (!buffered?.geometry?.coordinates?.[0]) return null
+
+    return buffered.geometry.coordinates[0].map(([lng, lat]) => ({ lat, lng }))
   }
 
   async function findAlongRoute() {
     if (!onFindAlongRoute) return
-    const bbox = computeRouteBbox(bufferMeters)
-    if (!bbox) return
+    const polygon = computeRouteBuffer(bufferMeters)
+    if (!polygon) return
     isFinding = true
-    try { await onFindAlongRoute(bbox) } finally { isFinding = false }
+    try { await onFindAlongRoute(polygon) } finally { isFinding = false }
   }
 </script>
 
@@ -392,27 +436,58 @@
         {/if}
       </div>
 
+      <!-- Save route -->
+      <div class="flex gap-2">
+        <input
+          type="text"
+          bind:value={saveRouteName}
+          placeholder="Route name..."
+          class="flex-1 px-2 py-1.5 bg-gray-800 border border-gray-700 text-gray-200 text-xs placeholder-gray-600 focus:border-orange-500 focus:outline-none"
+          onkeydown={(e) => e.key === 'Enter' && saveRoute()}
+        />
+        <button
+          onclick={saveRoute}
+          disabled={!saveRouteName.trim()}
+          class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-gray-300 text-xs transition-colors flex items-center gap-1"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Save
+        </button>
+      </div>
+
       <!-- Find along route -->
-      <div class="space-y-1">
-        <label class="text-xs font-bold text-gray-400 block">FIND ALONG ROUTE</label>
-        <div class="flex gap-2">
-          <select bind:value={bufferMeters} class="flex-1 px-2 py-1.5 bg-gray-800 border border-gray-700 text-gray-300 text-xs focus:border-orange-500 focus:outline-none">
-            <option value={100}>±100 m</option>
-            <option value={250}>±250 m</option>
-            <option value={500}>±500 m</option>
-            <option value={1000}>±1 km</option>
-          </select>
-          <button
-            onclick={findAlongRoute}
-            disabled={isFinding}
-            class="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-xs font-medium transition-colors flex items-center gap-1.5"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class={isFinding ? 'animate-spin' : ''}>
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-            {isFinding ? 'SEARCHING...' : 'SEARCH'}
-          </button>
+      <div class="space-y-1.5">
+        <div class="flex items-center justify-between">
+          <label class="text-xs font-bold text-gray-400">FIND ALONG ROUTE</label>
+          <div class="flex items-center gap-1">
+            <input
+              type="number"
+              min="25"
+              max="50000"
+              bind:value={bufferMeters}
+              class="w-16 px-1.5 py-0.5 bg-gray-800 border border-gray-700 text-gray-300 text-xs text-right focus:border-orange-500 focus:outline-none"
+            />
+            <span class="text-xs text-gray-500">m</span>
+          </div>
         </div>
+        <input
+          type="range"
+          min="25"
+          max="1000"
+          step="25"
+          bind:value={bufferMeters}
+          class="w-full accent-orange-500 cursor-pointer"
+        />
+        <button
+          onclick={findAlongRoute}
+          disabled={isFinding}
+          class="w-full px-3 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-xs font-medium transition-colors flex items-center justify-center gap-1.5"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class={isFinding ? 'animate-spin' : ''}>
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          {isFinding ? 'SEARCHING...' : 'SEARCH'}
+        </button>
       </div>
 
     {/if}
@@ -452,6 +527,41 @@
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- Saved routes -->
+    <div class="border border-gray-700 divide-y divide-gray-700">
+      <button
+        onclick={() => { showSaved = !showSaved; if (showSaved) loadSavedRoutes() }}
+        class="w-full px-3 py-2 bg-gray-800 flex items-center justify-between"
+      >
+        <span class="text-xs font-bold text-gray-400 tracking-wide">SAVED ROUTES</span>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" class={showSaved ? 'rotate-180' : ''} style="transition: transform 0.15s">
+          <path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </button>
+      {#if showSaved}
+        <div class="divide-y divide-gray-800">
+          {#if savedRoutes.length === 0}
+            <div class="px-3 py-2 text-xs text-gray-600 italic">No saved routes</div>
+          {:else}
+            {#each savedRoutes as route}
+              <div class="flex items-center gap-2 px-3 py-2 hover:bg-gray-800">
+                <div class="flex-1 min-w-0">
+                  <div class="text-xs text-gray-200 truncate">{route.name}</div>
+                  <div class="text-xs text-gray-600">{route.route_type} · {route.stops.length} stops</div>
+                </div>
+                <button onclick={() => loadRoute(route)} class="text-orange-400 hover:text-orange-300 flex-shrink-0" title="Load">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
+                </button>
+                <button onclick={() => deleteSavedRoute(route.id)} class="text-gray-600 hover:text-red-400 flex-shrink-0" title="Delete">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                </button>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      {/if}
     </div>
 
     <!-- Error -->
