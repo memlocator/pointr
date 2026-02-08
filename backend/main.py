@@ -35,6 +35,10 @@ tags_metadata = [
         "description": "CRUD for custom annotated polygon areas stored in PostGIS.",
     },
     {
+        "name": "datasources",
+        "description": "Upload and manage user-provided GeoJSON datasources (stored in PostGIS).",
+    },
+    {
         "name": "recon",
         "description": "Network reconnaissance: DNS records, SSL certificates, WHOIS, ASN info.",
     },
@@ -300,6 +304,29 @@ class UpdateCustomAreaRequest(BaseModel):
         }
     }
 
+# Datasource models (uploaded GeoJSON)
+class UploadSourceRequest(BaseModel):
+    name: str
+    geojson: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "name": "My Custom Dataset",
+                "geojson": '{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[18.0686,59.3293]},"properties":{"name":"Test POI","category":"Food & Dining"}}]}'
+            }
+        }
+    }
+
+class UploadSourceResponse(BaseModel):
+    name: str
+    feature_count: int
+    error: str = ''
+
+class UploadedSource(BaseModel):
+    name: str
+    feature_count: int
+
 # Routing models
 class RouteRequest(BaseModel):
     waypoints: list[Coordinate]
@@ -434,6 +461,20 @@ async def health_check():
             datasources.append({"name": db["name"], "status": "online", "message": "reachable"})
         except Exception as e:
             datasources.append({"name": db.get("name", "unknown"), "status": "error", "message": str(e)})
+
+    # Add uploaded sources (in-memory)
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            response = stub.ListUploadedSources(geo_pb2.ListUploadedSourcesRequest())
+            for src in response.sources:
+                datasources.append({
+                    "name": src.name,
+                    "status": "online",
+                    "message": f"{src.feature_count} features (uploaded)"
+                })
+    except Exception as e:
+        pass  # Silently skip if geo service unavailable
 
     health_status["datasources"] = datasources
 
@@ -812,6 +853,74 @@ async def delete_custom_poi(poi_id: str):
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             response = stub.DeleteCustomPOI(geo_pb2.DeleteCustomPOIRequest(id=poi_id))
+            if not response.success:
+                raise HTTPException(status_code=404, detail=response.error)
+            return {"success": True}
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
+
+@app.post("/api/datasources", response_model=UploadSourceResponse, tags=["datasources"], summary="Upload GeoJSON datasource")
+async def upload_datasource(request: UploadSourceRequest):
+    """
+    Upload a GeoJSON FeatureCollection as a custom datasource (stored in PostGIS).
+
+    Required GeoJSON properties per feature: name (string)
+    Optional properties: category, description, phone, website
+
+    Future: add authentication check before upload
+    """
+    # TODO: check authentication when auth is implemented
+    logger.debug(f"[upload_datasource] name={request.name!r}")
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            response = stub.UploadSource(geo_pb2.UploadSourceRequest(
+                name=request.name,
+                geojson=request.geojson
+            ))
+            if response.error:
+                raise HTTPException(status_code=400, detail=response.error)
+            return UploadSourceResponse(
+                name=response.name,
+                feature_count=response.feature_count
+            )
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
+
+@app.get("/api/datasources", response_model=list[UploadedSource], tags=["datasources"], summary="List uploaded datasources")
+async def list_datasources():
+    """
+    List all uploaded datasources currently stored in PostGIS.
+
+    Future: add authentication check to filter by user
+    """
+    # TODO: check authentication when auth is implemented
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            response = stub.ListUploadedSources(geo_pb2.ListUploadedSourcesRequest())
+            return [
+                UploadedSource(name=src.name, feature_count=src.feature_count)
+                for src in response.sources
+            ]
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
+
+@app.delete("/api/datasources/{name}", tags=["datasources"], summary="Delete uploaded datasource")
+async def delete_datasource(name: str):
+    """
+    Delete an uploaded datasource from PostGIS.
+
+    Future: add authentication check to verify ownership
+    """
+    # TODO: check authentication when auth is implemented
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            response = stub.DeleteUploadedSource(geo_pb2.DeleteUploadedSourceRequest(name=name))
             if not response.success:
                 raise HTTPException(status_code=404, detail=response.error)
             return {"success": True}

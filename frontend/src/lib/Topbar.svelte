@@ -12,6 +12,9 @@
   })
   let showHealthDetails = $state(false)
   let fileInput = $state(null)
+  let reuploadInput = $state(null)
+  let reuploadTarget = $state('')
+  let primaryDb = $derived.by(() => healthData.datasources?.find(d => d.name === 'Primary (PostGIS)'))
   let mappingModal = $state(null)
 
   const API_URL = 'http://localhost:8000'
@@ -181,11 +184,11 @@
     return true
   }
 
-  async function uploadDatasource(file) {
+  async function uploadDatasource(file, forcedName = '') {
     if (!file) return
     try {
       const text = await file.text()
-      const name = file.name.replace(/\.(geo)?json$/i, '')
+      const name = forcedName || file.name.replace(/\.(geo)?json$/i, '')
       const data = JSON.parse(text)
       if (data?.type !== 'FeatureCollection') {
         alert('Upload failed: GeoJSON must be a FeatureCollection')
@@ -332,6 +335,20 @@
             <div class="text-xs font-bold text-gray-400 tracking-wide">SERVICE STATUS</div>
           </div>
           <div class="p-2">
+            {#if primaryDb}
+              <div class="flex items-center justify-between px-2 py-2 hover:bg-gray-800 transition-colors">
+                <div class="flex items-center gap-2">
+                  <div class={`w-2 h-2 rounded-full ${getStatusColor(primaryDb.status)}`}></div>
+                  <span class="text-xs font-medium text-gray-300">Primary (PostGIS)</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-gray-500">{primaryDb.message || 'Unknown'}</span>
+                  <span class={`text-xs font-mono ${getStatusText(primaryDb.status)}`}>
+                    {(primaryDb.status || 'unknown').toUpperCase()}
+                  </span>
+                </div>
+              </div>
+            {/if}
             {#each Object.entries(healthData.services) as [serviceName, serviceData]}
               {#if serviceData}
                 <div class="flex items-center justify-between px-2 py-2 hover:bg-gray-800 transition-colors">
@@ -366,13 +383,25 @@
                 </svg>
               </button>
             </div>
-            <input
-              bind:this={fileInput}
-              type="file"
-              accept=".geojson,.json"
-              class="hidden"
-              onchange={(e) => { const f = e.target.files?.[0]; if (f) uploadDatasource(f); e.target.value = '' }}
-            />
+              <input
+                bind:this={fileInput}
+                type="file"
+                accept=".geojson,.json"
+                class="hidden"
+                onchange={(e) => { const f = e.target.files?.[0]; if (f) uploadDatasource(f); e.target.value = '' }}
+              />
+              <input
+                bind:this={reuploadInput}
+                type="file"
+                accept=".geojson,.json"
+                class="hidden"
+                onchange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f && reuploadTarget) uploadDatasource(f, reuploadTarget)
+                  reuploadTarget = ''
+                  e.target.value = ''
+                }}
+              />
             <div class="px-3 pb-2 flex flex-col gap-0.5">
               {#each [{key: 'osm', label: 'OSM', sub: 'Overpass'}, {key: 'custom', label: 'Custom POIs', sub: 'local'}] as src}
                 <button
@@ -403,7 +432,16 @@
                       <span class="text-xs text-gray-500">{(ds.status || '?').toUpperCase()}</span>
                     </div>
                   </button>
-                  {#if ds.message?.includes('in-memory')}
+                  {#if ds.message?.includes('uploaded')}
+                    <button
+                      onclick={(e) => { e.stopPropagation(); reuploadTarget = ds.name; reuploadInput?.click() }}
+                      class="w-5 h-5 flex items-center justify-center hover:bg-gray-700 text-gray-500 hover:text-amber-400 transition-colors"
+                      title="Re-upload datasource"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M2 6.5a3.5 3.5 0 1 0 1-2.5"/><polyline points="3 1 3 3.5 5.5 3.5"/>
+                      </svg>
+                    </button>
                     <button
                       onclick={(e) => { e.stopPropagation(); deleteDatasource(ds.name) }}
                       class="w-5 h-5 flex items-center justify-center hover:bg-gray-700 text-gray-500 hover:text-red-400 transition-colors"
@@ -414,16 +452,6 @@
                       </svg>
                     </button>
                   {/if}
-                </div>
-              {/each}
-              {#each healthData.datasources?.filter(d => d.name === 'Primary (PostGIS)') ?? [] as ds}
-                <div class="flex items-center gap-3 px-2 py-2">
-                  <div class="w-9 h-5 flex-shrink-0"></div>
-                  <span class="text-xs text-gray-600">{ds.name}</span>
-                  <div class="flex items-center gap-1.5 ml-auto">
-                    <div class={`w-1.5 h-1.5 rounded-full ${getStatusColor(ds.status)}`}></div>
-                    <span class="text-xs text-gray-500">{(ds.status || '?').toUpperCase()}</span>
-                  </div>
                 </div>
               {/each}
             </div>

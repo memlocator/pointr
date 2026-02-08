@@ -100,6 +100,36 @@ def init_db():
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS uploaded_sources (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name TEXT UNIQUE NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS uploaded_pois (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                source_id UUID NOT NULL REFERENCES uploaded_sources(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                category TEXT DEFAULT '',
+                description TEXT DEFAULT '',
+                phone TEXT DEFAULT '',
+                website TEXT DEFAULT '',
+                email TEXT DEFAULT '',
+                location GEOMETRY(Point, 4326) NOT NULL,
+                properties JSONB DEFAULT '{}'::jsonb,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS uploaded_pois_location_idx
+                ON uploaded_pois USING GIST (location)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS uploaded_pois_source_idx
+                ON uploaded_pois (source_id)
+        """)
         conn.commit()
     print("Database initialized")
 
@@ -158,8 +188,18 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                 except Exception as e:
                     print(f"Additional DB '{db.name}' query error: {e}")
 
-        # Blend: custom first, then additional sources, then OSM
-        all_businesses = custom_businesses + additional_businesses + osm_businesses
+        # Query uploaded sources (stored in PostGIS)
+        uploaded_businesses = []
+        try:
+            if not enabled:
+                uploaded_businesses = self._get_uploaded_pois_in_polygon(coords)
+            else:
+                uploaded_businesses = self._get_uploaded_pois_in_polygon(coords, list(enabled))
+        except Exception as e:
+            print(f"Uploaded source query error: {e}")
+
+        # Blend: custom first, then additional sources, uploaded, then OSM
+        all_businesses = custom_businesses + additional_businesses + uploaded_businesses + osm_businesses
 
         if error:
             print(f"Enrichment error: {error}")
@@ -428,6 +468,102 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
         except Exception as e:
             return geo_pb2.DeleteResponse(success=False, error=str(e))
 
+    def UploadSource(self, request, context):
+        """Upload a GeoJSON datasource (stored in PostGIS)"""
+        # TODO: check authentication when auth is implemented
+        try:
+            data = json.loads(request.geojson)
+            if data.get('type') != 'FeatureCollection':
+                return geo_pb2.UploadSourceResponse(error='GeoJSON must be a FeatureCollection')
+
+            features = data.get('features', [])
+            # Validate required fields
+            for i, f in enumerate(features):
+                if f.get('geometry', {}).get('type') != 'Point':
+                    return geo_pb2.UploadSourceResponse(error=f'Feature {i}: only Point geometries supported')
+                if 'name' not in f.get('properties', {}):
+                    return geo_pb2.UploadSourceResponse(error=f'Feature {i}: missing required "name" property')
+
+            with get_pool().connection() as conn:
+                row = conn.execute("""
+                    INSERT INTO uploaded_sources (name)
+                    VALUES (%s)
+                    ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+                    RETURNING id::text
+                """, (request.name,)).fetchone()
+                source_id = row['id']
+
+                conn.execute("DELETE FROM uploaded_pois WHERE source_id = %s::uuid", (source_id,))
+
+                insert_rows = []
+                for f in features:
+                    props = f.get('properties', {}) or {}
+                    coords_arr = f['geometry']['coordinates']
+                    insert_rows.append((
+                        source_id,
+                        props.get('name', 'Unnamed'),
+                        props.get('category', ''),
+                        props.get('description', ''),
+                        props.get('phone', ''),
+                        props.get('website', ''),
+                        props.get('email', ''),
+                        coords_arr[0],
+                        coords_arr[1],
+                        json.dumps(props)
+                    ))
+
+                if insert_rows:
+                    with conn.cursor() as cur:
+                        cur.executemany("""
+                            INSERT INTO uploaded_pois (
+                                source_id, name, category, description, phone, website, email,
+                                location, properties
+                            )
+                            VALUES (
+                                %s::uuid, %s, %s, %s, %s, %s, %s,
+                                ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s::jsonb
+                            )
+                        """, insert_rows)
+
+                conn.commit()
+
+            logger.debug(f"[UploadSource] {request.name}: {len(features)} features (db)")
+            return geo_pb2.UploadSourceResponse(
+                name=request.name,
+                feature_count=len(features),
+                error=''
+            )
+        except json.JSONDecodeError as e:
+            return geo_pb2.UploadSourceResponse(error=f'Invalid JSON: {e}')
+        except Exception as e:
+            logger.error(f"[UploadSource] error: {e}", exc_info=True)
+            return geo_pb2.UploadSourceResponse(error=str(e))
+
+    def ListUploadedSources(self, request, context):
+        """List all uploaded datasources"""
+        # TODO: check authentication when auth is implemented
+        with get_pool().connection() as conn:
+            rows = conn.execute("""
+                SELECT s.name, COUNT(p.id) AS feature_count
+                FROM uploaded_sources s
+                LEFT JOIN uploaded_pois p ON p.source_id = s.id
+                GROUP BY s.name
+                ORDER BY s.name
+            """).fetchall()
+        sources = [geo_pb2.UploadedSource(name=r['name'], feature_count=r['feature_count']) for r in rows]
+        return geo_pb2.ListUploadedSourcesResponse(sources=sources)
+
+    def DeleteUploadedSource(self, request, context):
+        """Delete an uploaded datasource"""
+        # TODO: check authentication when auth is implemented
+        with get_pool().connection() as conn:
+            cur = conn.execute("DELETE FROM uploaded_sources WHERE name = %s", (request.name,))
+            conn.commit()
+        if cur.rowcount and cur.rowcount > 0:
+            logger.debug(f"[DeleteUploadedSource] deleted {request.name}")
+            return geo_pb2.DeleteResponse(success=True, error='')
+        return geo_pb2.DeleteResponse(success=False, error='Source not found')
+
     def _get_custom_pois_in_polygon(self, coords) -> list:
         """Query PostGIS for custom POIs within a polygon using ST_Within"""
         wkt_coords = ", ".join(f"{lng} {lat}" for lng, lat in coords)
@@ -498,6 +634,46 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                 description=row.get('description') or '',
                 source=db.name,
                 address='', phone='', website='', email='', id=''
+            )
+            for row in rows
+        ]
+
+    def _get_uploaded_pois_in_polygon(self, coords, source_names: list[str] | None = None) -> list:
+        """Query uploaded sources (PostGIS) for features within the polygon."""
+        wkt_coords = ", ".join(f"{lng} {lat}" for lng, lat in coords)
+        polygon_wkt = f"POLYGON(({wkt_coords}))"
+
+        with get_pool().connection() as conn:
+            if source_names:
+                rows = conn.execute("""
+                    SELECT p.id::text, s.name AS source_name, p.name, p.category, p.description, p.phone, p.website, p.email,
+                           ST_Y(p.location) AS lat, ST_X(p.location) AS lng
+                    FROM uploaded_pois p
+                    JOIN uploaded_sources s ON s.id = p.source_id
+                    WHERE s.name = ANY(%s) AND ST_Within(p.location, ST_GeomFromText(%s, 4326))
+                """, (source_names, polygon_wkt)).fetchall()
+            else:
+                rows = conn.execute("""
+                    SELECT p.id::text, s.name AS source_name, p.name, p.category, p.description, p.phone, p.website, p.email,
+                           ST_Y(p.location) AS lat, ST_X(p.location) AS lng
+                    FROM uploaded_pois p
+                    JOIN uploaded_sources s ON s.id = p.source_id
+                    WHERE ST_Within(p.location, ST_GeomFromText(%s, 4326))
+                """, (polygon_wkt,)).fetchall()
+
+        return [
+            geo_pb2.Business(
+                name=row['name'] or 'Unnamed',
+                lat=row['lat'],
+                lng=row['lng'],
+                type=row['category'] or 'unknown',
+                description=row['description'] or '',
+                phone=row['phone'] or '',
+                website=row['website'] or '',
+                email=row['email'] or '',
+                source=row['source_name'],
+                address='',
+                id=row['id']
             )
             for row in rows
         ]
