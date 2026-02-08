@@ -1,0 +1,130 @@
+services:
+  postgis:
+    image: postgis/postgis:16-3.4-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pointr -d pointr"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  geo:
+    build:
+      context: .
+      dockerfile: geo/Dockerfile
+    ports:
+      - "50051:50051"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - GEO_DB_URL=${GEO_DB_URL}
+      - GEO_ADDITIONAL_DBS=${GEO_ADDITIONAL_DBS:-[]}
+    depends_on:
+      postgis:
+        condition: service_healthy
+    command: ["uv", "run", "python", "main.py"]
+    restart: unless-stopped
+
+  recon:
+    build:
+      context: .
+      dockerfile: recon/Dockerfile
+    ports:
+      - "50052:50052"
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["uv", "run", "python", "main.py"]
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - GEO_ADDITIONAL_DBS=${GEO_ADDITIONAL_DBS:-[]}
+    depends_on:
+      - geo
+      - recon
+    command: ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      - NODE_ENV=production
+      - VITE_API_URL=/api
+    depends_on:
+      - backend
+    command: ["sh", "-c", "npm run build && npm run preview -- --host 0.0.0.0 --port 5173"]
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/prod.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:2.9.3
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./logging/loki-config.yml:/etc/loki/config.yml
+      - loki_data:/loki
+    command: -config.file=/etc/loki/config.yml
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.9.3
+    user: "0:0"
+    volumes:
+      - ./logging/promtail-config.yml:/etc/promtail/config.yml
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    ports:
+      - "9080:9080"
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./logging/grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+volumes:
+  postgis_data:
+  loki_data:
+  grafana_data:
+
+networks:
+  default:
+    name: leadmaker-network

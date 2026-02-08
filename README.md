@@ -50,6 +50,23 @@ Backend (FastAPI) :8000
         ↓
 PostGIS (PostgreSQL 16) :5432
 Adminer (DB viewer) :8080
+Loki + Promtail :3100
+Grafana :3000
+```
+
+```mermaid
+graph TD
+  FE[Frontend :5173] -->|REST| BE[Backend :8000]
+  BE -->|gRPC| GEO[Geo Service :50051]
+  BE -->|gRPC| RECON[Recon Service :50052]
+  GEO -->|SQL| PG[PostGIS :5432]
+  PG --> ADMINER[Adminer :8080]
+  FE -. logs .-> PROMTAIL[Promtail]
+  BE -. logs .-> PROMTAIL
+  GEO -. logs .-> PROMTAIL
+  RECON -. logs .-> PROMTAIL
+  PROMTAIL --> LOKI[Loki :3100]
+  GRAFANA[Grafana :3000] --> LOKI
 ```
 
 **Data Flow:**
@@ -94,13 +111,17 @@ pointr/
 
 ```bash
 cp .env.example .env        # configure credentials
-docker compose up --build
+docker compose -f docker-compose-dev.yml up --build
 ```
 
 Services:
 - Frontend: http://localhost:5173
 - Backend API + docs: http://localhost:8000/docs
 - Adminer (DB): http://localhost:8080
+- Grafana: http://localhost:3000
+- Loki: http://localhost:3100
+- Promtail: http://localhost:9080
+ - Dev API proxy (injects `X-User`): http://localhost:8081
 
 ## Configuration
 
@@ -118,6 +139,8 @@ To rebrand, update `app_name` in `backend/config.py` and `recon/config.py`.
 See [docs/data-sources.md](docs/data-sources.md) for how to add additional PostGIS databases as enrichment sources.
 
 See [docs/data-upload.md](docs/data-upload.md) for how to upload GeoJSON datasources, update them, and the required format.
+See [docs/logging.md](docs/logging.md) for the self-hosted Grafana + Loki setup.
+See [docs/env.md](docs/env.md) for all environment variables.
 
 Demo upload dataset: [demo-data/gamla-stan-upload.geojson](demo-data/gamla-stan-upload.geojson)
 Demo upload dataset (unmapped fields): [demo-data/gamla-stan-upload-unmapped.geojson](demo-data/gamla-stan-upload-unmapped.geojson)
