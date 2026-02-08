@@ -13,6 +13,7 @@ import httpx
 import json
 import asyncio
 import logging
+import time
 from config import settings
 
 logging.basicConfig(level=logging.INFO)
@@ -71,14 +72,38 @@ app.add_middleware(
 AUTH_USER_HEADER = "X-User"
 
 @app.middleware("http")
-async def require_user_header(request: Request, call_next):
-    if request.method == "OPTIONS":
-        return await call_next(request)
+async def auth_and_log(request: Request, call_next):
+    start = time.perf_counter()
     user = request.headers.get(AUTH_USER_HEADER)
-    if not user:
+
+    if request.method != "OPTIONS" and not user:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        logger.info(
+            f'REQ user="-" method={request.method} path="{request.url.path}" '
+            f'status=401 success=false duration_ms={duration_ms}'
+        )
         return JSONResponse(status_code=401, content={"detail": f"Missing {AUTH_USER_HEADER} header"})
-    request.state.user = user
-    return await call_next(request)
+
+    if user:
+        request.state.user = user
+
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        success = status < 400
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        logger.info(
+            f'REQ user="{user or "-"}" method={request.method} path="{request.url.path}" '
+            f'status={status} success={str(success).lower()} duration_ms={duration_ms}'
+        )
+        return response
+    except Exception:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        logger.exception(
+            f'REQ user="{user or "-"}" method={request.method} path="{request.url.path}" '
+            f'status=500 success=false duration_ms={duration_ms}'
+        )
+        raise
 
 # Pydantic models for API
 class Coordinate(BaseModel):
