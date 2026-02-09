@@ -147,13 +147,6 @@ This keeps the frontend using a single base URL (`/api`) in production while all
 ### Production
 
 ```bash
-cp .env.example .env        # configure credentials
-docker compose -f docker-compose-prod.yml up --build
-```
-
-For production, you can start from `.env.prod.example`:
-
-```bash
 cp .env.prod.example .env.prod   # then edit values
 docker compose --env-file .env.prod -f docker-compose-prod.yml up --build
 ```
