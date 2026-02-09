@@ -1,10 +1,11 @@
 <script>
   import { APP_NAME } from '../config.js'
+  import { createEventDispatcher } from 'svelte'
   import { saveToStorage } from './stores/persistence.js'
   import { getSourceColor } from './sourceColors.js'
   import ColumnMappingModal from './components/ColumnMappingModal.svelte'
   import ApiDocsModal from './components/ApiDocsModal.svelte'
-  import { apiUrl } from './api.js'
+  import { apiFetch, getActiveProjectId, setActiveProjectId, getDevImpersonateUser, setDevImpersonateUser } from './api.js'
 
   let { currentView = $bindable(), enabledSources = $bindable(null), showCustomAreas = $bindable(true), businessCount = 0 } = $props()
   let apiStatus = $state('checking...')
@@ -19,10 +20,25 @@
   let showDocs = $state(false)
   let primaryDb = $derived.by(() => healthData.datasources?.find(d => d.name === 'Primary (PostGIS)'))
   let mappingModal = $state(null)
+  let currentUser = $state(null)
+  let projects = $state([])
+  let activeProjectId = $state(getActiveProjectId())
+  let showProjects = $state(false)
+  let deletingProjectId = $state(null)
+  let projectModal = $state(null)
+  let editProject = $state(null)
+  let editMembers = $state([])
+  let editAdd = $state('')
+  let editAddAdmin = $state(false)
+  let devImpersonateUser = $state(getDevImpersonateUser())
+
+  const dispatch = createEventDispatcher()
+  const isAdminRole = (role) => role === 'owner' || role === 'admin'
+  const displayRole = (role) => role === 'owner' ? 'admin' : role
 
   async function checkAPI() {
     try {
-      const response = await fetch(apiUrl('/api/health'))
+      const response = await apiFetch('/api/health')
       const data = await response.json()
       apiStatus = data.status
       healthData = data
@@ -37,6 +53,140 @@
         }
       }
     }
+  }
+
+  async function fetchCurrentUser() {
+    try {
+      const response = await apiFetch('/api/me')
+      if (!response.ok) return
+      currentUser = await response.json()
+      if (!activeProjectId && currentUser?.project_id) {
+        activeProjectId = currentUser.project_id
+        setActiveProjectId(activeProjectId)
+      }
+    } catch {}
+  }
+
+  async function fetchProjects() {
+    try {
+      const response = await apiFetch('/api/projects')
+      if (!response.ok) return
+      projects = await response.json()
+      if ((!activeProjectId || !projects.find(p => p.id === activeProjectId)) && projects.length > 0) {
+        activeProjectId = projects[0].id
+        setActiveProjectId(activeProjectId)
+        dispatch('projectchange', { id: activeProjectId })
+      }
+    } catch {}
+  }
+
+  async function createProject(name, members, role) {
+    try {
+      const response = await apiFetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      })
+      if (!response.ok) {
+        const err = await response.json()
+        alert(err.detail || 'Failed to create project')
+        return null
+      }
+      const created = await response.json()
+      if (members.length > 0) {
+        const mresp = await apiFetch(`/api/projects/${created.id}/members`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ usernames: members, role })
+        })
+        if (!mresp.ok) {
+          const err = await mresp.json()
+          alert(err.detail || 'Failed to add members')
+        }
+      }
+      await fetchProjects()
+      if (created?.id) {
+        activeProjectId = created.id
+        setActiveProjectId(created.id)
+      }
+      return created
+    } catch {
+      alert('Failed to create project')
+      return null
+    }
+  }
+
+  async function deleteProject(id) {
+    try {
+      const response = await apiFetch(`/api/projects/${id}`, { method: 'DELETE' })
+      if (!response.ok) {
+        const err = await response.json()
+        alert(err.detail || 'Failed to delete project')
+        return
+      }
+      deletingProjectId = null
+      if (activeProjectId === id) {
+        activeProjectId = ''
+        setActiveProjectId('')
+      }
+      await fetchProjects()
+    } catch {
+      alert('Failed to delete project')
+    }
+  }
+
+  async function openEditProject(project) {
+    try {
+      const response = await apiFetch(`/api/projects/${project.id}/members`)
+      if (!response.ok) {
+        const err = await response.json()
+        alert(err.detail || 'Failed to load members')
+        return
+      }
+      editMembers = await response.json()
+      editAdd = ''
+      editAddAdmin = false
+      editProject = project
+    } catch {
+      alert('Failed to load members')
+    }
+  }
+
+  async function addMembersToProject(projectId, usernames, role) {
+    if (usernames.length === 0) return
+    const response = await apiFetch(`/api/projects/${projectId}/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ usernames, role })
+    })
+    if (!response.ok) {
+      const err = await response.json()
+      alert(err.detail || 'Failed to add members')
+    }
+  }
+
+  async function removeMember(projectId, username) {
+    const response = await apiFetch(`/api/projects/${projectId}/members/${encodeURIComponent(username)}`, {
+      method: 'DELETE'
+    })
+    if (!response.ok) {
+      const err = await response.json()
+      alert(err.detail || 'Failed to remove member')
+    }
+  }
+
+  async function transferOwner(projectId, username) {
+    const response = await apiFetch(`/api/projects/${projectId}/owner`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ usernames: [username] })
+    })
+    if (!response.ok) {
+      const err = await response.json()
+      alert(err.detail || 'Failed to transfer ownership')
+      return false
+    }
+    return true
   }
 
   function getStatusColor(status) {
@@ -56,6 +206,8 @@
 
   // Run initial health check
   checkAPI()
+  fetchCurrentUser()
+  fetchProjects()
 
   // Set up periodic health check every 5 seconds
   $effect(() => {
@@ -64,7 +216,15 @@
     }, 5000)
 
     // Cleanup on component destroy
-    return () => clearInterval(interval)
+    const userInterval = setInterval(() => {
+      fetchCurrentUser()
+      fetchProjects()
+    }, 15000)
+
+    return () => {
+      clearInterval(interval)
+      clearInterval(userInterval)
+    }
   })
 
   // Initialise enabledSources from health data on first load
@@ -102,6 +262,19 @@
   function toggleCustomAreas() {
     showCustomAreas = !showCustomAreas
     saveToStorage('showCustomAreas', showCustomAreas)
+  }
+
+  function selectProject(id) {
+    if (id === activeProjectId) {
+      showProjects = false
+      return
+    }
+    activeProjectId = id
+    setActiveProjectId(id)
+    showProjects = false
+    dispatch('projectchange', { id })
+    checkAPI()
+    fetchCurrentUser()
   }
 
   function extractPropertyKeys(features) {
@@ -172,7 +345,7 @@
   }
 
   async function postDatasource(name, geojsonText) {
-    const response = await fetch(apiUrl('/api/datasources'), {
+    const response = await apiFetch('/api/datasources', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, geojson: geojsonText })
@@ -231,7 +404,7 @@
   async function deleteDatasource(name) {
     if (!confirm(`Delete datasource "${name}"?`)) return
     try {
-      const response = await fetch(apiUrl(`/api/datasources/${encodeURIComponent(name)}`), {
+      const response = await apiFetch(`/api/datasources/${encodeURIComponent(name)}`, {
         method: 'DELETE'
       })
       if (!response.ok) {
@@ -497,6 +670,125 @@
       REFRESH
     </button>
 
+    {#if currentUser?.user}
+      <div class="flex items-center gap-2 px-3 py-1 bg-gray-800 border border-gray-700">
+        <span class="text-xs text-gray-500">USER</span>
+        <span class="text-xs font-mono text-white">{currentUser.user}</span>
+      </div>
+    {/if}
+    {#if currentUser?.dev_mode}
+      <button
+        onclick={() => {
+          const name = prompt('Impersonate user (blank to clear):', devImpersonateUser || '')
+          if (name === null) return
+          const trimmed = (name || '').trim()
+          devImpersonateUser = trimmed
+          setDevImpersonateUser(trimmed)
+          fetchCurrentUser()
+        }}
+        class="flex items-center gap-2 px-3 py-1 bg-amber-900/40 border border-amber-700 text-amber-200 hover:bg-amber-900/60"
+        title="Set dev impersonation user"
+      >
+        <span class="text-xs font-semibold tracking-wide">DEV MODE</span>
+        {#if devImpersonateUser}
+          <span class="text-[10px] text-amber-100/90">{devImpersonateUser}</span>
+        {:else}
+          <span class="text-[10px] text-amber-300/80">impersonation enabled</span>
+        {/if}
+      </button>
+    {/if}
+
+    <div class="relative">
+      <button
+        onclick={() => showProjects = !showProjects}
+        class="flex items-center gap-2 px-3 py-1 bg-gray-800 border border-gray-700 hover:bg-gray-700 transition-colors"
+        title="Active project"
+      >
+        <span class="text-xs text-gray-500">PROJECT</span>
+        <span class="text-xs font-mono text-white">
+          {projects.find(p => p.id === activeProjectId)?.name || '—'}
+        </span>
+        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" class="text-gray-400">
+          <path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      {#if showProjects}
+        <div class="absolute top-full right-0 mt-1 bg-gray-900 border-2 border-gray-700 shadow-lg min-w-[200px] z-[1100]">
+          <div class="px-3 py-2 text-[10px] font-bold text-gray-500 tracking-wide">YOUR PROJECTS</div>
+          <div class="pb-2">
+            {#each projects as p}
+              {#if deletingProjectId === p.id}
+                <div class="px-3 py-2 border-t border-gray-800">
+                  <div class="text-[10px] font-bold text-red-400 tracking-wide mb-1">DELETE PROJECT</div>
+                  <div class="text-xs text-gray-300 mb-2">Delete <span class="font-semibold text-white">{p.name}</span>?</div>
+                  <div class="flex gap-2">
+                    <button
+                      onclick={() => deleteProject(p.id)}
+                      class="flex-1 py-1 bg-red-700 hover:bg-red-600 text-white text-[10px] font-medium"
+                    >DELETE</button>
+                    <button
+                      onclick={() => deletingProjectId = null}
+                      class="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 text-[10px]"
+                    >CANCEL</button>
+                  </div>
+                </div>
+              {:else}
+                <div class={`flex items-center justify-between gap-2 px-3 py-2 transition-colors ${p.id === activeProjectId ? 'bg-amber-900/20' : 'hover:bg-gray-800'}`}>
+                  <button
+                    onclick={() => selectProject(p.id)}
+                    class={`flex-1 text-left text-xs ${p.id === activeProjectId ? 'text-amber-400' : 'text-gray-300'}`}
+                  >
+                    {p.name}
+                    <span class="text-[10px] text-gray-600 ml-2">{displayRole(p.role)}</span>
+                  </button>
+                  {#if p.id === activeProjectId}
+                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-700/40 text-amber-200 border border-amber-700">ACTIVE</span>
+                  {/if}
+                  <div class="flex items-center gap-1">
+                    <button
+                      onclick={() => openEditProject(p)}
+                      class={`w-5 h-5 flex items-center justify-center rounded ${isAdminRole(p.role) ? 'text-gray-400 hover:text-amber-300 hover:bg-gray-700' : 'text-blue-300 hover:text-blue-200 hover:bg-gray-700'}`}
+                      title={isAdminRole(p.role) ? 'Edit members' : 'View project settings'}
+                    >
+                      {#if isAdminRole(p.role)}
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
+                        </svg>
+                      {:else}
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                        </svg>
+                      {/if}
+                    </button>
+                    {#if p.role === 'owner'}
+                      <button
+                        onclick={() => deletingProjectId = p.id}
+                        class="w-5 h-5 flex items-center justify-center text-gray-500 hover:text-red-400 hover:bg-gray-700"
+                        title="Delete project"
+                      >
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                          <line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/>
+                        </svg>
+                      </button>
+                    {/if}
+                  </div>
+                </div>
+              {/if}
+            {/each}
+            {#if projects.length === 0}
+              <div class="px-3 py-2 text-xs text-gray-500">No projects</div>
+            {/if}
+            <button
+              onclick={() => projectModal = { name: '', members: '', admin: false }}
+              class="w-full px-3 py-2 text-left text-xs text-amber-300 hover:bg-gray-800 border-t border-gray-800"
+            >
+              + Create new project
+            </button>
+          </div>
+        </div>
+      {/if}
+    </div>
+
     <button
       onclick={() => showDocs = true}
       class="w-7 h-7 rounded-full bg-gray-800 border border-gray-700 hover:border-gray-500 flex items-center justify-center text-gray-400 hover:text-gray-200 text-xs font-bold transition-colors"
@@ -507,6 +799,185 @@
 
 {#if showDocs}
   <ApiDocsModal onClose={() => showDocs = false} />
+{/if}
+
+{#if projectModal}
+  <div class="fixed inset-0 z-[1200] flex items-center justify-center bg-black/60">
+    <div class="w-[420px] bg-gray-900 border-2 border-gray-700 shadow-xl">
+      <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+        <div class="text-xs font-bold tracking-wide text-amber-400">CREATE PROJECT</div>
+        <button
+          onclick={() => projectModal = null}
+          class="w-6 h-6 flex items-center justify-center text-gray-500 hover:text-gray-200"
+        >✕</button>
+      </div>
+      <div class="p-4 space-y-3">
+        <div>
+          <label class="block text-[10px] text-gray-500 mb-1">Project name</label>
+          <input
+            type="text"
+            bind:value={projectModal.name}
+            placeholder="e.g. acme-retail"
+            class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs placeholder-gray-500 focus:border-amber-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label class="block text-[10px] text-gray-500 mb-1">Members (comma or newline separated)</label>
+          <textarea
+            rows="4"
+            bind:value={projectModal.members}
+            placeholder="alice, bob, carol"
+            class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs placeholder-gray-500 focus:border-amber-500 focus:outline-none"
+          />
+          <div class="text-[10px] text-gray-600 mt-1">Admins can add members later.</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <input id="create-admin" type="checkbox" bind:checked={projectModal.admin} class="accent-amber-500" />
+          <label for="create-admin" class="text-[10px] text-gray-400">Add as admins</label>
+        </div>
+      </div>
+      <div class="px-4 py-3 border-t border-gray-700 flex items-center gap-2">
+        <button
+          onclick={async () => {
+            const name = (projectModal.name || '').trim()
+            if (!name) return alert('Project name is required')
+            const members = projectModal.members
+              .split(/[\n,]+/)
+              .map(s => s.trim())
+              .filter(Boolean)
+              .filter(u => u !== currentUser?.user)
+            const role = projectModal.admin ? 'admin' : 'member'
+            await createProject(name, members, role)
+            projectModal = null
+          }}
+          class="flex-1 py-2 bg-amber-600 hover:bg-amber-500 text-black text-xs font-semibold"
+        >CREATE</button>
+        <button
+          onclick={() => projectModal = null}
+          class="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs"
+        >CANCEL</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if editProject}
+  <div class="fixed inset-0 z-[1200] flex items-center justify-center bg-black/60">
+    <div class="w-[460px] bg-gray-900 border-2 border-gray-700 shadow-xl">
+      <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+        <div class="text-xs font-bold tracking-wide text-amber-400">{isAdminRole(editProject.role) ? 'EDIT PROJECT' : 'PROJECT SETTINGS'}</div>
+        <button
+          onclick={() => editProject = null}
+          class="w-6 h-6 flex items-center justify-center text-gray-500 hover:text-gray-200"
+        >✕</button>
+      </div>
+      <div class="p-4 space-y-3">
+        <div class="text-xs text-gray-400">Project: <span class="text-white font-mono">{editProject.name}</span></div>
+        <div class="text-[10px] text-gray-500">ID: <span class="text-gray-300 font-mono">{editProject.id}</span></div>
+        <div class="text-[10px] text-gray-500">Owner: <span class="text-gray-300 font-mono">{editMembers.find(m => m.role === 'owner')?.username || '—'}</span></div>
+
+        <div>
+          <label class="block text-[10px] text-gray-500 mb-1">Members</label>
+          <div class="border border-gray-700 bg-gray-800">
+            {#each editMembers as m}
+              <div class="flex items-center justify-between px-2 py-1.5 border-b border-gray-700 last:border-b-0">
+                <div class="text-xs text-gray-200">{m.username} <span class="text-[10px] text-gray-500 ml-2">{displayRole(m.role)}</span></div>
+                {#if isAdminRole(editProject.role) && m.role !== 'owner'}
+                  {#if editProject.role === 'owner' && m.username !== currentUser?.user}
+                    <button
+                      onclick={async () => {
+                        const ok = confirm(`Transfer ownership to ${m.username}? You will become admin.`)
+                        if (!ok) return
+                        const success = await transferOwner(editProject.id, m.username)
+                        if (success) {
+                          editMembers = editMembers.map(x => x.username === m.username ? { ...x, role: 'owner' } : { ...x, role: x.role === 'owner' ? 'admin' : x.role })
+                          await fetchProjects()
+                        }
+                      }}
+                      class="text-[10px] px-2 py-0.5 border border-amber-500 text-amber-300 hover:bg-amber-500/10"
+                      title="Transfer ownership"
+                    >MAKE OWNER</button>
+                  {/if}
+                  <button
+                    onclick={async () => {
+                      await removeMember(editProject.id, m.username)
+                      editMembers = editMembers.filter(x => x.username !== m.username)
+                      await fetchProjects()
+                    }}
+                    class="w-5 h-5 flex items-center justify-center text-gray-500 hover:text-red-400 hover:bg-gray-700"
+                    title="Remove member"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                      <line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/>
+                    </svg>
+                  </button>
+                {/if}
+              </div>
+            {/each}
+            {#if editMembers.length === 0}
+              <div class="px-2 py-2 text-xs text-gray-500">No members</div>
+            {/if}
+          </div>
+        </div>
+
+        {#if isAdminRole(editProject.role)}
+          <div>
+            <label class="block text-[10px] text-gray-500 mb-1">Add members (comma or newline separated)</label>
+            <textarea
+              rows="3"
+              bind:value={editAdd}
+              placeholder="alice, bob"
+              class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs placeholder-gray-500 focus:border-amber-500 focus:outline-none"
+            />
+            <div class="flex items-center gap-2 mt-2">
+              <input id="edit-admin" type="checkbox" bind:checked={editAddAdmin} class="accent-amber-500" />
+              <label for="edit-admin" class="text-[10px] text-gray-400">Add as admin</label>
+            </div>
+          </div>
+        {/if}
+      </div>
+      <div class="px-4 py-3 border-t border-gray-700 flex items-center gap-2">
+        {#if isAdminRole(editProject.role)}
+          <button
+            onclick={async () => {
+              const members = editAdd
+                .split(/[\n,]+/)
+                .map(s => s.trim())
+                .filter(Boolean)
+                .filter(u => !editMembers.find(m => m.username === u))
+                .filter(u => u !== currentUser?.user)
+              if (members.length === 0) return
+              const role = editAddAdmin ? 'admin' : 'member'
+              await addMembersToProject(editProject.id, members, role)
+              editMembers = [
+                ...editMembers,
+                ...members.map(u => ({ username: u, role }))
+              ]
+              editAdd = ''
+              editAddAdmin = false
+            }}
+            class="flex-1 py-2 bg-amber-600 hover:bg-amber-500 text-black text-xs font-semibold"
+          >ADD MEMBERS</button>
+        {/if}
+        {#if editProject && editProject.role !== 'owner'}
+          <button
+            onclick={async () => {
+              const ok = confirm('Leave this project? You will lose access to its data.')
+              if (!ok) return
+              await removeMember(editProject.id, currentUser?.user)
+              editProject = null
+              await fetchProjects()
+            }}
+            class="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs"
+          >LEAVE PROJECT</button>
+        {/if}
+        <button
+          onclick={() => editProject = null}
+          class="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs"
+        >CLOSE</button>
+      </div>
+    </div>
+  </div>
 {/if}
 
 {#if mappingModal}

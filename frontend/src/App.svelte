@@ -43,6 +43,18 @@
 
   // Source filtering — null until Topbar populates from health data
   let enabledSources = $state(loadFromStorage('enabledSources', null))
+  let mapRef = $state(null)
+
+  function handleProjectChange() {
+    businesses = []
+    polygons = []
+    selectedBusinesses = []
+    searchQuery = ''
+    saveToStorage('customAreas', [])
+    if (mapRef?.clearAllState) {
+      mapRef.clearAllState()
+    }
+  }
 
   // Auto-save to localStorage when state changes
   $effect(() => {
@@ -83,10 +95,10 @@
 </script>
 
 <div class="h-screen w-screen flex flex-col bg-gray-900">
-  <Topbar bind:currentView bind:enabledSources bind:showCustomAreas businessCount={businesses.length} />
+  <Topbar bind:currentView bind:enabledSources bind:showCustomAreas businessCount={businesses.length} on:projectchange={handleProjectChange} />
   <div class="flex-1 overflow-hidden">
     {#if currentView === 'map'}
-      <Map bind:businesses bind:polygons bind:mapCenter bind:mapZoom bind:currentView bind:searchQuery bind:enabledCategories bind:showContactsOnly bind:heatmapEnabled bind:heatmapCategory bind:routingEnabled bind:stops bind:routeData bind:enabledSources bind:showCustomAreas />
+      <Map bind:this={mapRef} bind:businesses bind:polygons bind:mapCenter bind:mapZoom bind:currentView bind:searchQuery bind:enabledCategories bind:showContactsOnly bind:heatmapEnabled bind:heatmapCategory bind:routingEnabled bind:stops bind:routeData bind:enabledSources bind:showCustomAreas />
     {:else if currentView === 'list'}
       {#key currentView}
         <ListView {businesses} bind:selectedBusinesses bind:currentView bind:searchQuery bind:enabledCategories bind:showContactsOnly />

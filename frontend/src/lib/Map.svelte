@@ -5,7 +5,7 @@
   import circle from '@turf/circle'
   import { BUSINESS_CATEGORIES, generateColorExpression, generateIconExpression } from './businessCategories.js'
   import { getSourceColor } from './sourceColors.js'
-  import { apiUrl } from './api.js'
+  import { apiFetch } from './api.js'
   import { loadFromStorage, saveToStorage } from './stores/persistence.js'
   import LocationSearchBar from './components/LocationSearchBar.svelte'
   import DrawingToolbar from './components/DrawingToolbar.svelte'
@@ -536,7 +536,7 @@
           const [lng, lat] = f.geometry.coordinates
           const { name = 'Imported', category = 'Other', description = '' } = f.properties || {}
           try {
-            const resp = await fetch(apiUrl('/api/pois'), {
+            const resp = await apiFetch('/api/pois', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ name, category, description, lat, lng, tags: {} })
@@ -569,6 +569,10 @@
       draw.changeMode('simple_select')
       isDrawingPolygon = false
     }
+  }
+
+  export function clearAllState() {
+    clearAll()
   }
 
   function deletePolygon(polygonId) {
@@ -723,7 +727,7 @@
   }
 
   async function enrichCoordinates(coordinates) {
-    const response = await fetch(apiUrl('/api/map/enrich'), {
+    const response = await apiFetch('/api/map/enrich', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ coordinates, sources: enabledSources ?? [] })
@@ -854,7 +858,7 @@
     if (!polygonContextMenu?.inputName?.trim()) return
     const featureId = polygonContextMenu.featureId
     try {
-      const resp = await fetch(apiUrl('/api/areas'), {
+      const resp = await apiFetch('/api/areas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: polygonContextMenu.inputName.trim(), description: polygonContextMenu.inputDescription || '', coordinates: polygonContextMenu.coordinates })
@@ -886,7 +890,7 @@
     const areaId = drawnPolygonSaves[polygonContextMenu.featureId]?.id
     if (!areaId) return
     try {
-      const resp = await fetch(apiUrl(`/api/areas/${areaId}`), {
+      const resp = await apiFetch(`/api/areas/${areaId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: polygonContextMenu.inputName.trim(), description: polygonContextMenu.inputDescription || '' })
@@ -906,7 +910,7 @@
 
   async function deleteCustomArea(id) {
     try {
-      const resp = await fetch(apiUrl(`/api/areas/${id}`), { method: 'DELETE' })
+      const resp = await apiFetch(`/api/areas/${id}`, { method: 'DELETE' })
       if (!resp.ok) throw new Error('Failed to delete area')
       drawnPolygonSaves = Object.fromEntries(Object.entries(drawnPolygonSaves).filter(([, v]) => v.id !== id))
       customAreas = customAreas.filter(a => a.id !== id)
@@ -941,7 +945,7 @@
       const seen = new Set()
       const merged = []
       for (const coords of polygons) {
-        const resp = await fetch(apiUrl('/api/areas/intersect'), {
+        const resp = await apiFetch('/api/areas/intersect', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ coordinates: coords, sources: [] })
@@ -963,7 +967,7 @@
   async function saveCustomPOI() {
     if (!poiName.trim() || !poiForm) return
     try {
-      const resp = await fetch(apiUrl('/api/pois'), {
+      const resp = await apiFetch('/api/pois', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: poiName.trim(), category: poiCategory, description: poiDescription, phone: poiPhone, website: poiWebsite, lat: poiForm.lat, lng: poiForm.lng, tags: {} })
@@ -984,7 +988,7 @@
 
   async function deleteCustomPOI(id) {
     try {
-      const resp = await fetch(apiUrl(`/api/pois/${id}`), { method: 'DELETE' })
+      const resp = await apiFetch(`/api/pois/${id}`, { method: 'DELETE' })
       if (!resp.ok) throw new Error('Failed to delete POI')
       businesses = businesses.filter(b => b.id !== id)
       syncMapSource()
@@ -997,7 +1001,7 @@
   async function updateCustomPOI() {
     if (!poiContextMenu?.inputName?.trim()) return
     try {
-      const resp = await fetch(apiUrl(`/api/pois/${poiContextMenu.poiId}`), {
+      const resp = await apiFetch(`/api/pois/${poiContextMenu.poiId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: poiContextMenu.inputName.trim(), category: poiContextMenu.inputCategory, description: poiContextMenu.inputDescription || '', phone: poiContextMenu.inputPhone || '', website: poiContextMenu.inputWebsite || '' })
@@ -1016,7 +1020,7 @@
   async function saveCustomArea() {
     if (!areaName.trim() || !areaPrompt) return
     try {
-      const resp = await fetch(apiUrl('/api/areas'), {
+      const resp = await apiFetch('/api/areas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: areaName.trim(), coordinates: areaPrompt.coordinates })
@@ -1874,7 +1878,7 @@
       onClose={() => detailModal = null}
       onSave={async (updated) => {
         if (detailModal.type === 'poi') {
-          const resp = await fetch(apiUrl(`/api/pois/${detailModal.id}`), {
+          const resp = await apiFetch(`/api/pois/${detailModal.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: updated.name, category: updated.category, description: updated.description, phone: updated.phone || '', website: updated.website || '' })
@@ -1885,7 +1889,7 @@
             : b)
           detailModal = { ...detailModal, ...updated }
         } else {
-          const resp = await fetch(apiUrl(`/api/areas/${detailModal.id}`), {
+          const resp = await apiFetch(`/api/areas/${detailModal.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: updated.name, description: updated.description })
@@ -1991,7 +1995,7 @@
             class="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 text-gray-200 text-xs placeholder-gray-500 focus:border-amber-500 focus:outline-none mb-2"
             onkeydown={async (e) => {
               if (e.key === 'Enter') {
-                await fetch(apiUrl(`/api/areas/${polygonContextMenu.areaId}`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: polygonContextMenu.inputName.trim(), description: polygonContextMenu.inputDescription || '' }) })
+                await apiFetch(`/api/areas/${polygonContextMenu.areaId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: polygonContextMenu.inputName.trim(), description: polygonContextMenu.inputDescription || '' }) })
                 if (lastEnrichPolygons && lastEnrichPolygons.length > 0) {
                   await loadIntersectingAreasForPolygons(lastEnrichPolygons)
                 } else {
@@ -2012,7 +2016,7 @@
               onclick={async () => {
                 if (!polygonContextMenu.inputName.trim()) return
                 try {
-                  const resp = await fetch(apiUrl(`/api/areas/${polygonContextMenu.areaId}`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: polygonContextMenu.inputName.trim(), description: polygonContextMenu.inputDescription || '' }) })
+                  const resp = await apiFetch(`/api/areas/${polygonContextMenu.areaId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: polygonContextMenu.inputName.trim(), description: polygonContextMenu.inputDescription || '' }) })
                   if (!resp.ok) throw new Error('Failed to update area')
                   if (lastEnrichPolygons && lastEnrichPolygons.length > 0) {
                     await loadIntersectingAreasForPolygons(lastEnrichPolygons)

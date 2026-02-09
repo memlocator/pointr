@@ -2,7 +2,7 @@
   import LocationSearchBar from './LocationSearchBar.svelte'
   import buffer from '@turf/buffer'
   import simplify from '@turf/simplify'
-  import { apiUrl } from '../api.js'
+  import { apiFetch } from '../api.js'
 
   let {
     routingEnabled = $bindable(false),
@@ -82,7 +82,7 @@
           duration_seconds: null
         }
       } else {
-        const response = await fetch(apiUrl('/api/route'), {
+        const response = await apiFetch('/api/route', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ waypoints: stops.map(s => ({ lat: s.lat, lng: s.lng })) })
@@ -216,7 +216,7 @@
   // --- Saved routes ---
   async function loadSavedRoutes() {
     try {
-      const res = await fetch(apiUrl('/api/routes/saved'))
+      const res = await apiFetch('/api/routes/saved')
       if (res.ok) savedRoutes = await res.json()
     } catch {}
   }
@@ -224,7 +224,7 @@
   async function saveRoute() {
     if (!saveRouteName.trim()) return
     try {
-      const res = await fetch(apiUrl('/api/routes/saved'), {
+      const res = await apiFetch('/api/routes/saved', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: saveRouteName.trim(), route_type: routeType, stops })
@@ -238,7 +238,7 @@
 
   async function deleteSavedRoute(id) {
     try {
-      await fetch(apiUrl(`/api/routes/saved/${id}`), { method: 'DELETE' })
+      await apiFetch(`/api/routes/saved/${id}`, { method: 'DELETE' })
       savedRoutes = savedRoutes.filter(r => r.id !== id)
     } catch {}
   }
