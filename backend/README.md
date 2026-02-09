@@ -19,6 +19,8 @@ All settings are read from environment variables (or `.env` at the repo root). S
 | `APP_VERSION` | `1.0` | Application version |
 | `BACKEND_HOST` | `0.0.0.0` | Bind address |
 | `BACKEND_PORT` | `8000` | HTTP port |
+| `DEV_MODE` | `false` | Enables dev-only features (impersonation) |
+| `DEV_IMPERSONATE_HEADER` | `X-Dev-Impersonate` | Header used for dev impersonation |
 | `GEO_HOST` | `geo` | Geo service hostname |
 | `GEO_PORT` | `50051` | Geo service gRPC port |
 | `RECON_HOST` | `recon` | Recon service hostname |
@@ -33,6 +35,8 @@ All settings are read from environment variables (or `.env` at the repo root). S
 
 Interactive docs: http://localhost:8000/docs
 
+All authenticated requests require an `X-User` header (in dev, the Nginx proxy injects it). In `DEV_MODE`, you can also supply `X-Dev-Impersonate` to override the user for local testing.
+
 ### System
 
 | Method | Path | Description |
@@ -41,6 +45,19 @@ Interactive docs: http://localhost:8000/docs
 | `GET` | `/api/health` | Service health + datasource status |
 
 The health endpoint returns status for the backend, geo service, recon service, and all configured datasources (primary PostGIS + any additional ones).
+
+### Identity & Projects
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/me` | Current user + active project |
+| `GET` | `/api/projects` | List projects for current user |
+| `POST` | `/api/projects` | Create a project |
+| `DELETE` | `/api/projects/{project_id}` | Delete a project (owner only) |
+| `GET` | `/api/projects/{project_id}/members` | List project members |
+| `POST` | `/api/projects/{project_id}/members` | Add members (`role`: `member`/`admin`) |
+| `DELETE` | `/api/projects/{project_id}/members/{username}` | Remove member / leave |
+| `POST` | `/api/projects/{project_id}/owner` | Transfer ownership (single owner) |
 
 ### Enrichment
 

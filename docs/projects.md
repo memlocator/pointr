@@ -101,10 +101,11 @@ curl -H "X-User: local-dev" \
 
 - `GET /api/projects` — list projects for the current user.
 - `POST /api/projects` — create a project (owner = current user).
-- `DELETE /api/projects/{project_id}` — delete a project (owners only).
+- `DELETE /api/projects/{project_id}` — delete a project (owner only).
 - `GET /api/projects/{project_id}/members` — list members (project members only).
-- `POST /api/projects/{project_id}/members` — add members (owners only).
-- `DELETE /api/projects/{project_id}/members/{username}` — remove member (owners only).
+- `POST /api/projects/{project_id}/members` — add members (`role`: `member`/`admin`; admin+owner only).
+- `DELETE /api/projects/{project_id}/members/{username}` — remove member (admin+owner only; owner cannot be removed; members can remove themselves).
+- `POST /api/projects/{project_id}/owner` — transfer ownership (single owner).
 
 ---
 

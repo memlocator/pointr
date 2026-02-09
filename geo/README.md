@@ -25,6 +25,20 @@ See [docs/data-sources.md](../docs/data-sources.md) for the `GEO_ADDITIONAL_DBS`
 
 Defined in `proto/geo.proto`.
 
+### Projects & ACLs
+
+| Method | Description |
+|---|---|
+| `EnsureUserProject` | Ensure a default project exists for a user |
+| `ListUserProjects` | List projects for a user |
+| `CheckProjectAccess` | Validate user membership for a project |
+| `CreateProject` | Create a project |
+| `DeleteProject` | Delete a project (owner only) |
+| `AddProjectMember` | Add a member/admin |
+| `RemoveProjectMember` | Remove a member / leave project |
+| `ListProjectMembers` | List members of a project |
+| `PromoteProjectOwner` | Transfer ownership (single owner) |
+
 ### Enrichment
 
 | Method | Description |
@@ -32,7 +46,7 @@ Defined in `proto/geo.proto`.
 | `Health` | Service health status |
 | `EnrichPolygon` | Query all sources within a polygon; returns blended POI list |
 
-`EnrichPolygon` queries in priority order: custom POIs → additional PostGIS sources → OpenStreetMap (Overpass). Results from each source are tagged with their `source` field.
+`EnrichPolygon` queries in priority order: custom POIs → additional PostGIS sources → OpenStreetMap (Overpass). Results from each source are tagged with their `source` field. All project-scoped queries require a `project_id`.
 
 ### Custom POIs
 
@@ -74,6 +88,7 @@ Managed via `init_db()` at startup — tables are created if they don't exist.
 | `description` | TEXT | |
 | `location` | GEOMETRY(Point, 4326) | Spatially indexed |
 | `tags` | JSONB | |
+| `project_id` | UUID | Project scope |
 | `created_at` | TIMESTAMPTZ | |
 
 **`custom_areas`**
@@ -85,6 +100,7 @@ Managed via `init_db()` at startup — tables are created if they don't exist.
 | `description` | TEXT | |
 | `geom` | GEOMETRY(Polygon, 4326) | Spatially indexed |
 | `metadata` | JSONB | |
+| `project_id` | UUID | Project scope |
 | `created_at` | TIMESTAMPTZ | |
 
 **`saved_routes`**
@@ -103,6 +119,7 @@ Managed via `init_db()` at startup — tables are created if they don't exist.
 |---|---|---|
 | `id` | UUID | Primary key |
 | `name` | TEXT | Unique datasource name |
+| `project_id` | UUID | Project scope |
 | `created_at` | TIMESTAMPTZ | |
 
 **`uploaded_pois`**
@@ -111,6 +128,7 @@ Managed via `init_db()` at startup — tables are created if they don't exist.
 |---|---|---|
 | `id` | UUID | Primary key |
 | `source_id` | UUID | FK → `uploaded_sources(id)` |
+| `project_id` | UUID | Project scope |
 | `name` | TEXT | |
 | `category` | TEXT | |
 | `description` | TEXT | |

@@ -9,6 +9,7 @@ A geospatial data platform for discovering, analyzing, and investigating busines
 - **Business Discovery**: Automatically discover businesses, POIs, and government entities within drawn areas
 - **Custom POIs**: Right-click anywhere on the map to add your own points of interest
 - **Custom Areas**: Draw a polygon, enrich it, then save it as a named area — rendered as a dashed amber overlay with label
+- **Projects & ACLs**: Project-scoped data with admin/member roles and per-project uploads
 - **Location Search**: Search for locations worldwide using OpenStreetMap Nominatim
 - **Routing**: Driving (OSRM) and flight modes, draggable waypoints
 - **Color-Coded Markers**: Visual categorization by business type (Food, Retail, Healthcare, Government, etc.)
@@ -131,6 +132,7 @@ Services:
 
 Notes:
 - In dev, all frontend API calls go through the Nginx dev proxy at `:8081`, which injects `X-User`.
+- `DEV_MODE=true` enables the optional `X-Dev-Impersonate` header for local testing only.
 - Promtail has no UI. Use Grafana to view logs; Promtail exposes metrics at `http://localhost:9080/metrics`.
 
 ## Nginx Proxy
@@ -212,6 +214,7 @@ Navigate to http://localhost:8080 and log in:
 | category   | TEXT                   | Maps to business categories  |
 | location   | GEOMETRY(Point, 4326)  | WGS84 lat/lng, spatially indexed |
 | tags       | JSONB                  | Arbitrary key/value metadata |
+| project_id | UUID                   | Project scope (FK → projects)|
 | created_at | TIMESTAMPTZ            |                              |
 
 **`custom_areas`** — named annotated polygons
@@ -223,11 +226,48 @@ Navigate to http://localhost:8080 and log in:
 | description | TEXT                     | Optional notes               |
 | geom        | GEOMETRY(Polygon, 4326)  | WGS84 polygon, spatially indexed |
 | metadata    | JSONB                    | Arbitrary key/value metadata |
+| project_id  | UUID                     | Project scope (FK → projects)|
 | created_at  | TIMESTAMPTZ              |                              |
+
+**`projects`** — project registry
+
+| Column          | Type        | Notes |
+|-----------------|-------------|-------|
+| id              | UUID        | Primary key |
+| name            | TEXT        | Unique project name |
+| created_by      | TEXT        | Username |
+| default_acl_mode| TEXT        | `NONE` (default), `ALL` reserved |
+| created_at      | TIMESTAMPTZ | |
+
+**`project_members`** — project ACLs
+
+| Column     | Type | Notes |
+|------------|------|-------|
+| project_id | UUID | FK → projects |
+| username   | TEXT | Member identity |
+| role       | TEXT | `owner`, `admin`, `member` |
+
+**`uploaded_sources`** — uploaded GeoJSON sources
+
+| Column     | Type | Notes |
+|------------|------|-------|
+| id         | UUID | Primary key |
+| name       | TEXT | Source name |
+| project_id | UUID | Project scope |
+| created_at | TIMESTAMPTZ | |
+
+**`uploaded_pois`** — uploaded POIs
+
+| Column     | Type | Notes |
+|------------|------|-------|
+| id         | UUID | Primary key |
+| source_id  | UUID | FK → uploaded_sources |
+| project_id | UUID | Project scope |
+| location   | GEOMETRY(Point, 4326) | |
 
 Both tables use PostGIS GIST spatial indexes for fast `ST_Within` / `ST_Intersects` queries.
 
-Custom POIs appear blended with OSM results when you enrich a polygon — distinguished by an amber ring on the map and a `Custom` badge in popups. Custom areas that intersect your query polygon are surfaced in the `INSIDE: ...` banner.
+Custom POIs appear blended with OSM results when you enrich a polygon — distinguished by an amber ring on the map and a `Custom` badge in popups. Custom areas that intersect your query polygon are fetched and rendered as dashed overlays.
 
 ### Useful Queries
 

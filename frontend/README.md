@@ -17,12 +17,13 @@ Svelte 5 single-page application providing the map interface, list views, and re
 | **List** | Tabular view of discovered businesses with search, filtering, sorting, and export |
 | **Contacts** | Filtered view showing only businesses that have contact information |
 | **Recon** | Domain reconnaissance interface with live streaming results |
+| **Projects** | Project selector with admin/member roles and access control |
 
 ## Key Components
 
 | Component | Description |
 |---|---|
-| `Topbar` | Navigation bar, view switcher, business counter, API health indicator |
+| `Topbar` | Navigation bar, view switcher, business counter, project selector, dev mode badge |
 | `Map` | MapLibre GL map; polygon/circle drawing; business markers; heatmap; routing layer |
 | `DrawingToolbar` | Polygon, rectangle, and circle drawing controls |
 | `LocationSearchBar` | Nominatim geocoding with autocomplete |
@@ -39,6 +40,12 @@ Svelte 5 single-page application providing the map interface, list views, and re
 - Business markers are color-coded by category
 - Heatmap toggle per category
 - Routing panel for multi-stop driving directions via OSRM
+
+## Projects
+
+- The active project is stored client-side and sent with API requests.
+- Project membership and roles are managed in the Topbar modal.
+- In dev mode, the Topbar shows a **DEV MODE** badge that can set an impersonation user.
 
 ## Development
 
