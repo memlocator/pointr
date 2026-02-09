@@ -465,7 +465,7 @@ async def root():
     return {"message": f"Welcome to {settings.app_name} API"}
 
 @app.get("/api/health", tags=["system"], summary="Service health")
-async def health_check(request: Request):
+async def health_check(request: Request, project_id: str | None = None):
     """Health check endpoint that tests all services"""
     health_status = {
         "status": "healthy",
@@ -557,10 +557,11 @@ async def health_check(request: Request):
 
     # Add uploaded sources (in-memory)
     try:
+        effective_project_id = resolve_project_id(request, project_id)
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             response = stub.ListUploadedSources(
-                geo_pb2.ListUploadedSourcesRequest(project_id=request.state.project_id)
+                geo_pb2.ListUploadedSourcesRequest(project_id=effective_project_id)
             )
             for src in response.sources:
                 datasources.append({
