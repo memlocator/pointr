@@ -27,6 +27,8 @@ GEO_ADDITIONAL_DBS=[{"name":"Municipal","url":"postgresql://user:pass@host:5432/
 - `APP_VERSION` (default: `1.0`)
 - `BACKEND_HOST` (default: `0.0.0.0`)
 - `BACKEND_PORT` (default: `8000`)
+- `DEV_MODE` (default: `false`) — enables dev-only features like impersonation
+- `DEV_IMPERSONATE_HEADER` (default: `X-Dev-Impersonate`) — header used to impersonate users in dev mode
 - `GEO_HOST` (default: `geo`)
 - `GEO_PORT` (default: `50051`)
 - `RECON_HOST` (default: `recon`)
@@ -124,8 +126,6 @@ spec:
                   key: password
             - name: GEO_DB_URL
               value: postgresql://pointr:$(POSTGRES_PASSWORD)@postgis:5432/pointr
-            - name: DEV_USER
-              value: ""
             - name: CORS_ORIGINS
               value: "[\"https://your-frontend.example\"]"
 ```

@@ -177,6 +177,7 @@ To rebrand, update `app_name` in `backend/config.py` and `recon/config.py`.
 See [docs/data-sources.md](docs/data-sources.md) for how to add additional PostGIS databases as enrichment sources.
 
 See [docs/data-upload.md](docs/data-upload.md) for how to upload GeoJSON datasources, update them, and the required format.
+See [docs/projects.md](docs/projects.md) for projects and access control.
 See [docs/logging.md](docs/logging.md) for the self-hosted Grafana + Loki setup.
 See [docs/env.md](docs/env.md) for all environment variables (including a brief OSRM self-hosting guide).
 
