@@ -151,6 +151,13 @@ cp .env.example .env        # configure credentials
 docker compose -f docker-compose-prod.yml up --build
 ```
 
+For production, you can start from `.env.prod.example`:
+
+```bash
+cp .env.prod.example .env.prod   # then edit values
+docker compose --env-file .env.prod -f docker-compose-prod.yml up --build
+```
+
 Services:
 - App (Nginx): http://localhost:8080
 - Backend API + docs: http://localhost:8000/docs

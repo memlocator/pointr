@@ -2,6 +2,15 @@
 
 All services read configuration from environment variables (Pydantic `BaseSettings`). For local dev, `.env` is loaded automatically; for containers/Kubernetes, set these in your runtime environment.
 
+For production, use a dedicated env file:
+
+```bash
+cp .env.prod.example .env.prod
+docker compose --env-file .env.prod -f docker-compose-prod.yml up --build
+```
+
+In production, set `CORS_ORIGINS` explicitly (do not use `*`).
+
 ## Common / Database
 
 Required for PostGIS:
