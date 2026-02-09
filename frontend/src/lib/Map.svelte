@@ -876,6 +876,9 @@
       savePolygons()
       if (lastEnrichPolygons && lastEnrichPolygons.length > 0) {
         await loadIntersectingAreasForPolygons(lastEnrichPolygons)
+        if (!customAreas.find(a => a.id === saved.id)) {
+          customAreas = [...customAreas, saved]
+        }
       } else {
         customAreas = [...customAreas, saved]
       }
