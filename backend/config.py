@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: list[str] = ["http://localhost:5173"]
 
+    # Dev mode
+    dev_mode: bool = False
+    dev_impersonate_header: str = "X-Dev-Impersonate"
+
     # Additional PostGIS sources (same JSON as GEO_ADDITIONAL_DBS)
     geo_additional_dbs: str = "[]"
 

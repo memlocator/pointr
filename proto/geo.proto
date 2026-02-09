@@ -5,6 +5,15 @@ package geo;
 service GeoDataService {
   rpc Health(HealthRequest) returns (HealthResponse);
   rpc EnrichPolygon(PolygonRequest) returns (EnrichmentResponse);
+  rpc EnsureUserProject(EnsureUserProjectRequest) returns (ProjectResponse);
+  rpc ListUserProjects(ListUserProjectsRequest) returns (ListUserProjectsResponse);
+  rpc CheckProjectAccess(CheckProjectAccessRequest) returns (CheckProjectAccessResponse);
+  rpc CreateProject(CreateProjectRequest) returns (CreateProjectResponse);
+  rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
+  rpc AddProjectMember(AddProjectMemberRequest) returns (ProjectMemberResponse);
+  rpc RemoveProjectMember(RemoveProjectMemberRequest) returns (ProjectMemberResponse);
+  rpc ListProjectMembers(ListProjectMembersRequest) returns (ListProjectMembersResponse);
+  rpc PromoteProjectOwner(PromoteProjectOwnerRequest) returns (ProjectMemberResponse);
 
   rpc AddCustomPOI(AddCustomPOIRequest) returns (CustomPOIResponse);
   rpc UpdateCustomPOI(UpdateCustomPOIRequest) returns (CustomPOIResponse);
@@ -36,6 +45,7 @@ message Coordinate {
 message PolygonRequest {
   repeated Coordinate coordinates = 1;
   repeated string sources = 2;
+  string project_id = 3;
 }
 
 message Business {
@@ -70,6 +80,7 @@ message AddCustomPOIRequest {
   string description = 6;
   string phone = 7;
   string website = 8;
+  string project_id = 9;
 }
 
 message CustomPOIResponse {
@@ -92,10 +103,12 @@ message UpdateCustomPOIRequest {
   string description = 4;
   string phone = 5;
   string website = 6;
+  string project_id = 7;
 }
 
 message DeleteCustomPOIRequest {
   string id = 1;
+  string project_id = 2;
 }
 
 message DeleteResponse {
@@ -108,6 +121,7 @@ message ListCustomPOIsRequest {
   double min_lng = 2;
   double max_lat = 3;
   double max_lng = 4;
+  string project_id = 5;
 }
 
 message ListCustomPOIsResponse {
@@ -120,6 +134,7 @@ message AddCustomAreaRequest {
   string description = 2;
   repeated Coordinate coordinates = 3;
   string metadata_json = 4;
+  string project_id = 5;
 }
 
 message CustomAreaResponse {
@@ -135,13 +150,112 @@ message UpdateCustomAreaRequest {
   string id = 1;
   string name = 2;
   string description = 3;
+  string project_id = 4;
 }
 
 message DeleteCustomAreaRequest {
   string id = 1;
+  string project_id = 2;
 }
 
-message ListCustomAreasRequest {}
+message ListCustomAreasRequest {
+  string project_id = 1;
+}
+message EnsureUserProjectRequest {
+  string username = 1;
+}
+
+message ProjectResponse {
+  string id = 1;
+  string name = 2;
+  string default_acl_mode = 3;
+  string error = 4;
+}
+
+message ProjectSummary {
+  string id = 1;
+  string name = 2;
+  string role = 3;
+}
+
+message ListUserProjectsRequest {
+  string username = 1;
+}
+
+message ListUserProjectsResponse {
+  repeated ProjectSummary projects = 1;
+  string error = 2;
+}
+
+message CheckProjectAccessRequest {
+  string username = 1;
+  string project_id = 2;
+}
+
+message CheckProjectAccessResponse {
+  bool allowed = 1;
+  string error = 2;
+}
+
+message CreateProjectRequest {
+  string name = 1;
+  string username = 2;
+}
+
+message CreateProjectResponse {
+  string id = 1;
+  string name = 2;
+  string error = 3;
+}
+
+message DeleteProjectRequest {
+  string project_id = 1;
+  string username = 2;
+}
+
+message DeleteProjectResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message AddProjectMemberRequest {
+  string project_id = 1;
+  string username = 2;
+  string requester = 3;
+  string role = 4;
+}
+
+message RemoveProjectMemberRequest {
+  string project_id = 1;
+  string username = 2;
+  string requester = 3;
+}
+
+message ProjectMemberResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message PromoteProjectOwnerRequest {
+  string project_id = 1;
+  string new_owner = 2;
+  string requester = 3;
+}
+
+message ListProjectMembersRequest {
+  string project_id = 1;
+  string requester = 2;
+}
+
+message ProjectMember {
+  string username = 1;
+  string role = 2;
+}
+
+message ListProjectMembersResponse {
+  repeated ProjectMember members = 1;
+  string error = 2;
+}
 
 message ListCustomAreasResponse {
   repeated CustomAreaResponse areas = 1;
@@ -185,6 +299,7 @@ message HealthResponse {
 message UploadSourceRequest {
   string name = 1;
   string geojson = 2;  // GeoJSON FeatureCollection string
+  string project_id = 3;
 }
 
 message UploadSourceResponse {
@@ -193,7 +308,9 @@ message UploadSourceResponse {
   string error = 3;
 }
 
-message ListUploadedSourcesRequest {}
+message ListUploadedSourcesRequest {
+  string project_id = 1;
+}
 
 message ListUploadedSourcesResponse {
   repeated UploadedSource sources = 1;

@@ -44,6 +44,51 @@ class GeoDataServiceStub(object):
                 request_serializer=geo__pb2.PolygonRequest.SerializeToString,
                 response_deserializer=geo__pb2.EnrichmentResponse.FromString,
                 _registered_method=True)
+        self.EnsureUserProject = channel.unary_unary(
+                '/geo.GeoDataService/EnsureUserProject',
+                request_serializer=geo__pb2.EnsureUserProjectRequest.SerializeToString,
+                response_deserializer=geo__pb2.ProjectResponse.FromString,
+                _registered_method=True)
+        self.ListUserProjects = channel.unary_unary(
+                '/geo.GeoDataService/ListUserProjects',
+                request_serializer=geo__pb2.ListUserProjectsRequest.SerializeToString,
+                response_deserializer=geo__pb2.ListUserProjectsResponse.FromString,
+                _registered_method=True)
+        self.CheckProjectAccess = channel.unary_unary(
+                '/geo.GeoDataService/CheckProjectAccess',
+                request_serializer=geo__pb2.CheckProjectAccessRequest.SerializeToString,
+                response_deserializer=geo__pb2.CheckProjectAccessResponse.FromString,
+                _registered_method=True)
+        self.CreateProject = channel.unary_unary(
+                '/geo.GeoDataService/CreateProject',
+                request_serializer=geo__pb2.CreateProjectRequest.SerializeToString,
+                response_deserializer=geo__pb2.CreateProjectResponse.FromString,
+                _registered_method=True)
+        self.DeleteProject = channel.unary_unary(
+                '/geo.GeoDataService/DeleteProject',
+                request_serializer=geo__pb2.DeleteProjectRequest.SerializeToString,
+                response_deserializer=geo__pb2.DeleteProjectResponse.FromString,
+                _registered_method=True)
+        self.AddProjectMember = channel.unary_unary(
+                '/geo.GeoDataService/AddProjectMember',
+                request_serializer=geo__pb2.AddProjectMemberRequest.SerializeToString,
+                response_deserializer=geo__pb2.ProjectMemberResponse.FromString,
+                _registered_method=True)
+        self.RemoveProjectMember = channel.unary_unary(
+                '/geo.GeoDataService/RemoveProjectMember',
+                request_serializer=geo__pb2.RemoveProjectMemberRequest.SerializeToString,
+                response_deserializer=geo__pb2.ProjectMemberResponse.FromString,
+                _registered_method=True)
+        self.ListProjectMembers = channel.unary_unary(
+                '/geo.GeoDataService/ListProjectMembers',
+                request_serializer=geo__pb2.ListProjectMembersRequest.SerializeToString,
+                response_deserializer=geo__pb2.ListProjectMembersResponse.FromString,
+                _registered_method=True)
+        self.PromoteProjectOwner = channel.unary_unary(
+                '/geo.GeoDataService/PromoteProjectOwner',
+                request_serializer=geo__pb2.PromoteProjectOwnerRequest.SerializeToString,
+                response_deserializer=geo__pb2.ProjectMemberResponse.FromString,
+                _registered_method=True)
         self.AddCustomPOI = channel.unary_unary(
                 '/geo.GeoDataService/AddCustomPOI',
                 request_serializer=geo__pb2.AddCustomPOIRequest.SerializeToString,
@@ -131,6 +176,60 @@ class GeoDataServiceServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def EnrichPolygon(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def EnsureUserProject(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListUserProjects(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CheckProjectAccess(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CreateProject(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteProject(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def AddProjectMember(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RemoveProjectMember(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListProjectMembers(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PromoteProjectOwner(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -240,6 +339,51 @@ def add_GeoDataServiceServicer_to_server(servicer, server):
                     servicer.EnrichPolygon,
                     request_deserializer=geo__pb2.PolygonRequest.FromString,
                     response_serializer=geo__pb2.EnrichmentResponse.SerializeToString,
+            ),
+            'EnsureUserProject': grpc.unary_unary_rpc_method_handler(
+                    servicer.EnsureUserProject,
+                    request_deserializer=geo__pb2.EnsureUserProjectRequest.FromString,
+                    response_serializer=geo__pb2.ProjectResponse.SerializeToString,
+            ),
+            'ListUserProjects': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListUserProjects,
+                    request_deserializer=geo__pb2.ListUserProjectsRequest.FromString,
+                    response_serializer=geo__pb2.ListUserProjectsResponse.SerializeToString,
+            ),
+            'CheckProjectAccess': grpc.unary_unary_rpc_method_handler(
+                    servicer.CheckProjectAccess,
+                    request_deserializer=geo__pb2.CheckProjectAccessRequest.FromString,
+                    response_serializer=geo__pb2.CheckProjectAccessResponse.SerializeToString,
+            ),
+            'CreateProject': grpc.unary_unary_rpc_method_handler(
+                    servicer.CreateProject,
+                    request_deserializer=geo__pb2.CreateProjectRequest.FromString,
+                    response_serializer=geo__pb2.CreateProjectResponse.SerializeToString,
+            ),
+            'DeleteProject': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteProject,
+                    request_deserializer=geo__pb2.DeleteProjectRequest.FromString,
+                    response_serializer=geo__pb2.DeleteProjectResponse.SerializeToString,
+            ),
+            'AddProjectMember': grpc.unary_unary_rpc_method_handler(
+                    servicer.AddProjectMember,
+                    request_deserializer=geo__pb2.AddProjectMemberRequest.FromString,
+                    response_serializer=geo__pb2.ProjectMemberResponse.SerializeToString,
+            ),
+            'RemoveProjectMember': grpc.unary_unary_rpc_method_handler(
+                    servicer.RemoveProjectMember,
+                    request_deserializer=geo__pb2.RemoveProjectMemberRequest.FromString,
+                    response_serializer=geo__pb2.ProjectMemberResponse.SerializeToString,
+            ),
+            'ListProjectMembers': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListProjectMembers,
+                    request_deserializer=geo__pb2.ListProjectMembersRequest.FromString,
+                    response_serializer=geo__pb2.ListProjectMembersResponse.SerializeToString,
+            ),
+            'PromoteProjectOwner': grpc.unary_unary_rpc_method_handler(
+                    servicer.PromoteProjectOwner,
+                    request_deserializer=geo__pb2.PromoteProjectOwnerRequest.FromString,
+                    response_serializer=geo__pb2.ProjectMemberResponse.SerializeToString,
             ),
             'AddCustomPOI': grpc.unary_unary_rpc_method_handler(
                     servicer.AddCustomPOI,
@@ -371,6 +515,249 @@ class GeoDataService(object):
             '/geo.GeoDataService/EnrichPolygon',
             geo__pb2.PolygonRequest.SerializeToString,
             geo__pb2.EnrichmentResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def EnsureUserProject(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/geo.GeoDataService/EnsureUserProject',
+            geo__pb2.EnsureUserProjectRequest.SerializeToString,
+            geo__pb2.ProjectResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListUserProjects(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/geo.GeoDataService/ListUserProjects',
+            geo__pb2.ListUserProjectsRequest.SerializeToString,
+            geo__pb2.ListUserProjectsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CheckProjectAccess(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/geo.GeoDataService/CheckProjectAccess',
+            geo__pb2.CheckProjectAccessRequest.SerializeToString,
+            geo__pb2.CheckProjectAccessResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CreateProject(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/geo.GeoDataService/CreateProject',
+            geo__pb2.CreateProjectRequest.SerializeToString,
+            geo__pb2.CreateProjectResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteProject(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/geo.GeoDataService/DeleteProject',
+            geo__pb2.DeleteProjectRequest.SerializeToString,
+            geo__pb2.DeleteProjectResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AddProjectMember(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/geo.GeoDataService/AddProjectMember',
+            geo__pb2.AddProjectMemberRequest.SerializeToString,
+            geo__pb2.ProjectMemberResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RemoveProjectMember(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/geo.GeoDataService/RemoveProjectMember',
+            geo__pb2.RemoveProjectMemberRequest.SerializeToString,
+            geo__pb2.ProjectMemberResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListProjectMembers(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/geo.GeoDataService/ListProjectMembers',
+            geo__pb2.ListProjectMembersRequest.SerializeToString,
+            geo__pb2.ListProjectMembersResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PromoteProjectOwner(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/geo.GeoDataService/PromoteProjectOwner',
+            geo__pb2.PromoteProjectOwnerRequest.SerializeToString,
+            geo__pb2.ProjectMemberResponse.FromString,
             options,
             channel_credentials,
             insecure,

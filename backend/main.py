@@ -25,6 +25,10 @@ tags_metadata = [
         "description": "Health checks and system status across all services.",
     },
     {
+        "name": "auth",
+        "description": "Authentication and identity helpers.",
+    },
+    {
         "name": "geo",
         "description": "Spatial enrichment via Overpass API and geocoding via Nominatim.",
     },
@@ -70,11 +74,40 @@ app.add_middleware(
 )
 
 AUTH_USER_HEADER = "X-User"
+DEV_IMPERSONATE_HEADER = settings.dev_impersonate_header
+
+def ensure_user_project_id(username: str) -> str:
+    with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+        resp = stub.EnsureUserProject(geo_pb2.EnsureUserProjectRequest(username=username))
+        if resp.error:
+            raise RuntimeError(resp.error)
+        return resp.id
+
+def check_project_access(username: str, project_id: str) -> bool:
+    with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+        resp = stub.CheckProjectAccess(geo_pb2.CheckProjectAccessRequest(username=username, project_id=project_id))
+        if resp.error:
+            raise RuntimeError(resp.error)
+        return bool(resp.allowed)
+
+def resolve_project_id(request: Request, override: str | None) -> str:
+    project_id = request.state.project_id
+    if override and override != project_id:
+        if not check_project_access(request.state.user, override):
+            raise HTTPException(status_code=403, detail="Not a member of that project")
+        project_id = override
+    return project_id
 
 @app.middleware("http")
 async def auth_and_log(request: Request, call_next):
     start = time.perf_counter()
     user = request.headers.get(AUTH_USER_HEADER)
+    if settings.dev_mode:
+        imp = request.headers.get(DEV_IMPERSONATE_HEADER)
+        if imp:
+            user = imp
 
     if request.method != "OPTIONS" and not user:
         duration_ms = int((time.perf_counter() - start) * 1000)
@@ -86,6 +119,15 @@ async def auth_and_log(request: Request, call_next):
 
     if user:
         request.state.user = user
+        try:
+            request.state.project_id = ensure_user_project_id(user)
+        except Exception as e:
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            logger.exception(
+                f'REQ user="{user}" method={request.method} path="{request.url.path}" '
+                f'status=503 success=false duration_ms={duration_ms}'
+            )
+            return JSONResponse(status_code=503, content={"detail": f"Project lookup failed: {e}"})
 
     try:
         response = await call_next(request)
@@ -119,6 +161,7 @@ class Coordinate(BaseModel):
 class PolygonRequest(BaseModel):
     coordinates: list[Coordinate]
     sources: list[str] = []
+    project_id: str | None = None
 
     model_config = {
         "json_schema_extra": {
@@ -154,6 +197,13 @@ class EnrichmentResponse(BaseModel):
     nearby_features: list[str]
     businesses: list[Business]
     error: str = ''
+
+class CreateProjectRequest(BaseModel):
+    name: str
+
+class ProjectMembersRequest(BaseModel):
+    usernames: list[str]
+    role: str = "member"
 
 # Recon models
 class ReconRequest(BaseModel):
@@ -251,6 +301,7 @@ class CustomPOIRequest(BaseModel):
     lat: float
     lng: float
     tags: dict = {}
+    project_id: str | None = None
 
     model_config = {
         "json_schema_extra": {
@@ -284,6 +335,7 @@ class CustomAreaRequest(BaseModel):
     description: str = ''
     coordinates: list[Coordinate]
     metadata: dict = {}
+    project_id: str | None = None
 
     model_config = {
         "json_schema_extra": {
@@ -316,6 +368,7 @@ class UpdateCustomPOIRequest(BaseModel):
     description: str = ''
     phone: str = ''
     website: str = ''
+    project_id: str | None = None
 
     model_config = {
         "json_schema_extra": {
@@ -332,6 +385,7 @@ class UpdateCustomPOIRequest(BaseModel):
 class UpdateCustomAreaRequest(BaseModel):
     name: str
     description: str = ''
+    project_id: str | None = None
 
     model_config = {
         "json_schema_extra": {
@@ -346,6 +400,7 @@ class UpdateCustomAreaRequest(BaseModel):
 class UploadSourceRequest(BaseModel):
     name: str
     geojson: str
+    project_id: str | None = None
 
     model_config = {
         "json_schema_extra": {
@@ -410,7 +465,7 @@ async def root():
     return {"message": f"Welcome to {settings.app_name} API"}
 
 @app.get("/api/health", tags=["system"], summary="Service health")
-async def health_check():
+async def health_check(request: Request):
     """Health check endpoint that tests all services"""
     health_status = {
         "status": "healthy",
@@ -504,7 +559,9 @@ async def health_check():
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
-            response = stub.ListUploadedSources(geo_pb2.ListUploadedSourcesRequest())
+            response = stub.ListUploadedSources(
+                geo_pb2.ListUploadedSourcesRequest(project_id=request.state.project_id)
+            )
             for src in response.sources:
                 datasources.append({
                     "name": src.name,
@@ -518,9 +575,152 @@ async def health_check():
 
     return health_status
 
+@app.get("/api/me", tags=["auth"], summary="Current user identity")
+async def get_current_user(request: Request):
+    """Return the authenticated username and default project."""
+    return {
+        "user": request.state.user,
+        "project_id": request.state.project_id,
+        "dev_mode": settings.dev_mode
+    }
+
+@app.get("/api/projects", tags=["auth"], summary="List projects for current user")
+async def list_projects(request: Request):
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            resp = stub.ListUserProjects(geo_pb2.ListUserProjectsRequest(username=request.state.user))
+            if resp.error:
+                raise HTTPException(status_code=500, detail=resp.error)
+            return [{"id": p.id, "name": p.name, "role": p.role} for p in resp.projects]
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
+@app.post("/api/projects", tags=["auth"], summary="Create project")
+async def create_project(payload: CreateProjectRequest, request: Request):
+    name = (payload.name or '').strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Project name is required")
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            resp = stub.CreateProject(
+                geo_pb2.CreateProjectRequest(name=name, username=request.state.user)
+            )
+            if resp.error:
+                logger.error(f'[PROJECT CREATE] user="{request.state.user}" name="{name}" error="{resp.error}"')
+                raise HTTPException(status_code=400, detail=resp.error)
+            logger.info(f'[PROJECT CREATE] user="{request.state.user}" project_id="{resp.id}" name="{resp.name}"')
+            return {"id": resp.id, "name": resp.name, "role": "owner"}
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
+@app.delete("/api/projects/{project_id}", tags=["auth"], summary="Delete project")
+async def delete_project(project_id: str, request: Request):
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            resp = stub.DeleteProject(
+                geo_pb2.DeleteProjectRequest(project_id=project_id, username=request.state.user)
+            )
+            if not resp.success:
+                logger.error(f'[PROJECT DELETE] user="{request.state.user}" project_id="{project_id}" error="{resp.error}"')
+                raise HTTPException(status_code=400, detail=resp.error or "Delete failed")
+            logger.info(f'[PROJECT DELETE] user="{request.state.user}" project_id="{project_id}"')
+            return {"success": True}
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
+@app.post("/api/projects/{project_id}/members", tags=["auth"], summary="Add project members")
+async def add_project_members(project_id: str, payload: ProjectMembersRequest, request: Request):
+    usernames = [u.strip() for u in payload.usernames if u and u.strip()]
+    if not usernames:
+        raise HTTPException(status_code=400, detail="At least one username is required")
+    role = (payload.role or "member").strip().lower()
+    if role not in ("member", "admin"):
+        raise HTTPException(status_code=400, detail="Invalid role")
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            for username in usernames:
+                resp = stub.AddProjectMember(
+                    geo_pb2.AddProjectMemberRequest(
+                        project_id=project_id,
+                        username=username,
+                        requester=request.state.user,
+                        role=role
+                    )
+                )
+                if not resp.success:
+                    logger.error(f'[PROJECT MEMBER ADD] user="{request.state.user}" project_id="{project_id}" target="{username}" role="{role}" error="{resp.error}"')
+                    raise HTTPException(status_code=400, detail=resp.error)
+                logger.info(f'[PROJECT MEMBER ADD] user="{request.state.user}" project_id="{project_id}" target="{username}" role="{role}"')
+            return {"success": True}
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
+@app.delete("/api/projects/{project_id}/members/{username}", tags=["auth"], summary="Remove project member")
+async def remove_project_member(project_id: str, username: str, request: Request):
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            resp = stub.RemoveProjectMember(
+                geo_pb2.RemoveProjectMemberRequest(
+                    project_id=project_id,
+                    username=username,
+                    requester=request.state.user
+                )
+            )
+            if not resp.success:
+                logger.error(f'[PROJECT MEMBER REMOVE] user="{request.state.user}" project_id="{project_id}" target="{username}" error="{resp.error}"')
+                raise HTTPException(status_code=400, detail=resp.error)
+            logger.info(f'[PROJECT MEMBER REMOVE] user="{request.state.user}" project_id="{project_id}" target="{username}"')
+            return {"success": True}
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
+@app.post("/api/projects/{project_id}/owner", tags=["auth"], summary="Transfer project ownership")
+async def transfer_project_owner(project_id: str, payload: ProjectMembersRequest, request: Request):
+    if not payload.usernames or len(payload.usernames) != 1:
+        raise HTTPException(status_code=400, detail="Provide exactly one username")
+    new_owner = payload.usernames[0].strip()
+    if not new_owner:
+        raise HTTPException(status_code=400, detail="Username required")
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            resp = stub.PromoteProjectOwner(
+                geo_pb2.PromoteProjectOwnerRequest(
+                    project_id=project_id,
+                    new_owner=new_owner,
+                    requester=request.state.user
+                )
+            )
+            if not resp.success:
+                logger.error(f'[PROJECT OWNER TRANSFER] user="{request.state.user}" project_id="{project_id}" new_owner="{new_owner}" error="{resp.error}"')
+                raise HTTPException(status_code=400, detail=resp.error)
+            logger.info(f'[PROJECT OWNER TRANSFER] user="{request.state.user}" project_id="{project_id}" new_owner="{new_owner}"')
+            return {"success": True}
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
+@app.get("/api/projects/{project_id}/members", tags=["auth"], summary="List project members")
+async def list_project_members(project_id: str, request: Request):
+    try:
+        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            resp = stub.ListProjectMembers(
+                geo_pb2.ListProjectMembersRequest(project_id=project_id, requester=request.state.user)
+            )
+            if resp.error:
+                raise HTTPException(status_code=400, detail=resp.error)
+            return [{"username": m.username, "role": m.role} for m in resp.members]
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
 @app.post("/api/enrich", response_model=EnrichmentResponse, tags=["geo"], summary="Enrich polygon with OSM data")
 @app.post("/api/map/enrich", response_model=EnrichmentResponse, tags=["geo"], include_in_schema=False)
-async def enrich_polygon(request: PolygonRequest):
+async def enrich_polygon(payload: PolygonRequest, request: Request):
     """
     Query Overpass API and PostGIS for all businesses/POIs inside the given polygon.
 
@@ -533,11 +733,12 @@ async def enrich_polygon(request: PolygonRequest):
 
             proto_coords = [
                 geo_pb2.Coordinate(lat=coord.lat, lng=coord.lng)
-                for coord in request.coordinates
+                for coord in payload.coordinates
             ]
 
+            project_id = resolve_project_id(request, payload.project_id)
             response = stub.EnrichPolygon(
-                geo_pb2.PolygonRequest(coordinates=proto_coords, sources=request.sources)
+                geo_pb2.PolygonRequest(coordinates=proto_coords, sources=payload.sources, project_id=project_id)
             )
 
             businesses = [
@@ -780,20 +981,22 @@ async def run_recon_stream(request: ReconRequest):
     )
 
 @app.post("/api/pois", response_model=CustomPOIResponse, tags=["custom-pois"], summary="Create custom POI")
-async def add_custom_poi(request: CustomPOIRequest):
+async def add_custom_poi(payload: CustomPOIRequest, request: Request):
     """Create a new custom point of interest. Returns the created POI with its assigned UUID."""
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            project_id = resolve_project_id(request, payload.project_id)
             response = stub.AddCustomPOI(geo_pb2.AddCustomPOIRequest(
-                name=request.name,
-                category=request.category,
-                description=request.description,
-                phone=request.phone,
-                website=request.website,
-                lat=request.lat,
-                lng=request.lng,
-                tags_json=json.dumps(request.tags)
+                name=payload.name,
+                category=payload.category,
+                description=payload.description,
+                phone=payload.phone,
+                website=payload.website,
+                lat=payload.lat,
+                lng=payload.lng,
+                tags_json=json.dumps(payload.tags),
+                project_id=project_id
             ))
             if response.error:
                 logger.error(f"[POI CREATE] gRPC error: {response.error}")
@@ -817,10 +1020,12 @@ async def add_custom_poi(request: CustomPOIRequest):
 
 @app.get("/api/pois", response_model=list[CustomPOIResponse], tags=["custom-pois"], summary="List custom POIs")
 async def list_custom_pois(
+    request: Request,
     min_lat: float | None = None,
     min_lng: float | None = None,
     max_lat: float | None = None,
-    max_lng: float | None = None
+    max_lng: float | None = None,
+    project_id: str | None = None
 ):
     """
     List all custom POIs. Optionally filter by bounding box by providing all four
@@ -829,11 +1034,13 @@ async def list_custom_pois(
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            effective_project_id = resolve_project_id(request, project_id)
             response = stub.ListCustomPOIs(geo_pb2.ListCustomPOIsRequest(
                 min_lat=min_lat or 0.0,
                 min_lng=min_lng or 0.0,
                 max_lat=max_lat or 0.0,
-                max_lng=max_lng or 0.0
+                max_lng=max_lng or 0.0,
+                project_id=effective_project_id
             ))
             return [
                 CustomPOIResponse(
@@ -849,18 +1056,20 @@ async def list_custom_pois(
 
 
 @app.patch("/api/pois/{poi_id}", response_model=CustomPOIResponse, tags=["custom-pois"], summary="Update custom POI")
-async def update_custom_poi(poi_id: str, request: UpdateCustomPOIRequest):
+async def update_custom_poi(poi_id: str, payload: UpdateCustomPOIRequest, request: Request):
     """Update the name, category, or description of an existing custom POI."""
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            project_id = resolve_project_id(request, payload.project_id)
             response = stub.UpdateCustomPOI(geo_pb2.UpdateCustomPOIRequest(
                 id=poi_id,
-                name=request.name,
-                category=request.category,
-                description=request.description,
-                phone=request.phone,
-                website=request.website
+                name=payload.name,
+                category=payload.category,
+                description=payload.description,
+                phone=payload.phone,
+                website=payload.website,
+                project_id=project_id
             ))
             if response.error:
                 raise HTTPException(status_code=404, detail=response.error)
@@ -880,12 +1089,13 @@ async def update_custom_poi(poi_id: str, request: UpdateCustomPOIRequest):
 
 
 @app.delete("/api/pois/{poi_id}", tags=["custom-pois"], summary="Delete custom POI")
-async def delete_custom_poi(poi_id: str):
+async def delete_custom_poi(poi_id: str, request: Request, project_id: str | None = None):
     """Permanently delete a custom POI by its UUID."""
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
-            response = stub.DeleteCustomPOI(geo_pb2.DeleteCustomPOIRequest(id=poi_id))
+            effective_project_id = resolve_project_id(request, project_id)
+            response = stub.DeleteCustomPOI(geo_pb2.DeleteCustomPOIRequest(id=poi_id, project_id=effective_project_id))
             if not response.success:
                 raise HTTPException(status_code=404, detail=response.error)
             return {"success": True}
@@ -894,7 +1104,7 @@ async def delete_custom_poi(poi_id: str):
 
 
 @app.post("/api/datasources", response_model=UploadSourceResponse, tags=["datasources"], summary="Upload GeoJSON datasource")
-async def upload_datasource(request: UploadSourceRequest):
+async def upload_datasource(payload: UploadSourceRequest, request: Request):
     """
     Upload a GeoJSON FeatureCollection as a custom datasource (stored in PostGIS).
 
@@ -907,9 +1117,11 @@ async def upload_datasource(request: UploadSourceRequest):
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            project_id = resolve_project_id(request, payload.project_id)
             response = stub.UploadSource(geo_pb2.UploadSourceRequest(
-                name=request.name,
-                geojson=request.geojson
+                name=payload.name,
+                geojson=payload.geojson,
+                project_id=project_id
             ))
             if response.error:
                 raise HTTPException(status_code=400, detail=response.error)
@@ -922,7 +1134,7 @@ async def upload_datasource(request: UploadSourceRequest):
 
 
 @app.get("/api/datasources", response_model=list[UploadedSource], tags=["datasources"], summary="List uploaded datasources")
-async def list_datasources():
+async def list_datasources(request: Request, project_id: str | None = None):
     """
     List all uploaded datasources currently stored in PostGIS.
 
@@ -932,7 +1144,8 @@ async def list_datasources():
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
-            response = stub.ListUploadedSources(geo_pb2.ListUploadedSourcesRequest())
+            effective_project_id = resolve_project_id(request, project_id)
+            response = stub.ListUploadedSources(geo_pb2.ListUploadedSourcesRequest(project_id=effective_project_id))
             return [
                 UploadedSource(name=src.name, feature_count=src.feature_count)
                 for src in response.sources
@@ -942,7 +1155,7 @@ async def list_datasources():
 
 
 @app.delete("/api/datasources/{name}", tags=["datasources"], summary="Delete uploaded datasource")
-async def delete_datasource(name: str):
+async def delete_datasource(name: str, request: Request, project_id: str | None = None):
     """
     Delete an uploaded datasource from PostGIS.
 
@@ -952,7 +1165,8 @@ async def delete_datasource(name: str):
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
-            response = stub.DeleteUploadedSource(geo_pb2.DeleteUploadedSourceRequest(name=name))
+            effective_project_id = resolve_project_id(request, project_id)
+            response = stub.DeleteUploadedSource(geo_pb2.DeleteUploadedSourceRequest(name=name, project_id=effective_project_id))
             if not response.success:
                 raise HTTPException(status_code=404, detail=response.error)
             return {"success": True}
@@ -961,17 +1175,19 @@ async def delete_datasource(name: str):
 
 
 @app.post("/api/areas", response_model=CustomAreaResponse, tags=["custom-areas"], summary="Create custom area")
-async def add_custom_area(request: CustomAreaRequest):
+async def add_custom_area(payload: CustomAreaRequest, request: Request):
     """Create a new custom polygon area. The polygon is stored in PostGIS and returned with its UUID."""
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
-            proto_coords = [geo_pb2.Coordinate(lat=c.lat, lng=c.lng) for c in request.coordinates]
+            proto_coords = [geo_pb2.Coordinate(lat=c.lat, lng=c.lng) for c in payload.coordinates]
+            project_id = resolve_project_id(request, payload.project_id)
             response = stub.AddCustomArea(geo_pb2.AddCustomAreaRequest(
-                name=request.name,
-                description=request.description,
+                name=payload.name,
+                description=payload.description,
                 coordinates=proto_coords,
-                metadata_json=json.dumps(request.metadata)
+                metadata_json=json.dumps(payload.metadata),
+                project_id=project_id
             ))
             if response.error:
                 raise HTTPException(status_code=400, detail=response.error)
@@ -987,12 +1203,13 @@ async def add_custom_area(request: CustomAreaRequest):
 
 
 @app.get("/api/areas", response_model=list[CustomAreaResponse], tags=["custom-areas"], summary="List custom areas")
-async def list_custom_areas():
+async def list_custom_areas(request: Request, project_id: str | None = None):
     """List all custom polygon areas with their coordinate rings and metadata."""
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
-            response = stub.ListCustomAreas(geo_pb2.ListCustomAreasRequest())
+            effective_project_id = resolve_project_id(request, project_id)
+            response = stub.ListCustomAreas(geo_pb2.ListCustomAreasRequest(project_id=effective_project_id))
             return [
                 CustomAreaResponse(
                     id=a.id, name=a.name, description=a.description,
@@ -1005,7 +1222,7 @@ async def list_custom_areas():
         raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
 
 @app.post("/api/areas/intersect", response_model=list[CustomAreaResponse], tags=["custom-areas"], summary="List custom areas intersecting polygon")
-async def list_intersecting_custom_areas(request: PolygonRequest):
+async def list_intersecting_custom_areas(payload: PolygonRequest, request: Request):
     """Return only custom areas that intersect the provided polygon."""
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
@@ -1013,11 +1230,12 @@ async def list_intersecting_custom_areas(request: PolygonRequest):
 
             proto_coords = [
                 geo_pb2.Coordinate(lat=coord.lat, lng=coord.lng)
-                for coord in request.coordinates
+                for coord in payload.coordinates
             ]
 
+            project_id = resolve_project_id(request, payload.project_id)
             response = stub.ListIntersectingAreas(
-                geo_pb2.PolygonRequest(coordinates=proto_coords, sources=request.sources)
+                geo_pb2.PolygonRequest(coordinates=proto_coords, sources=payload.sources, project_id=project_id)
             )
 
             if response.error:
@@ -1028,9 +1246,9 @@ async def list_intersecting_custom_areas(request: PolygonRequest):
                     id=a.id,
                     name=a.name,
                     description=a.description,
-                    coordinates=[{"lat": c.lat, "lng": c.lng} for c in a.coordinates],
-                    metadata_json=a.metadata_json,
-                    error=a.error,
+                    coordinates=[Coordinate(lat=c.lat, lng=c.lng) for c in a.coordinates],
+                    metadata=json.loads(a.metadata_json) if a.metadata_json else {},
+                    error=a.error
                 )
                 for a in response.areas
             ]
@@ -1039,15 +1257,17 @@ async def list_intersecting_custom_areas(request: PolygonRequest):
 
 
 @app.patch("/api/areas/{area_id}", response_model=CustomAreaResponse, tags=["custom-areas"], summary="Update custom area")
-async def update_custom_area(area_id: str, request: UpdateCustomAreaRequest):
+async def update_custom_area(area_id: str, payload: UpdateCustomAreaRequest, request: Request):
     """Update the name or description of an existing custom area."""
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            project_id = resolve_project_id(request, payload.project_id)
             response = stub.UpdateCustomArea(geo_pb2.UpdateCustomAreaRequest(
                 id=area_id,
-                name=request.name,
-                description=request.description
+                name=payload.name,
+                description=payload.description,
+                project_id=project_id
             ))
             if response.error:
                 raise HTTPException(status_code=404, detail=response.error)
@@ -1063,12 +1283,13 @@ async def update_custom_area(area_id: str, request: UpdateCustomAreaRequest):
 
 
 @app.delete("/api/areas/{area_id}", tags=["custom-areas"], summary="Delete custom area")
-async def delete_custom_area(area_id: str):
+async def delete_custom_area(area_id: str, request: Request, project_id: str | None = None):
     """Permanently delete a custom area by its UUID."""
     try:
         with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
-            response = stub.DeleteCustomArea(geo_pb2.DeleteCustomAreaRequest(id=area_id))
+            effective_project_id = resolve_project_id(request, project_id)
+            response = stub.DeleteCustomArea(geo_pb2.DeleteCustomAreaRequest(id=area_id, project_id=effective_project_id))
             if not response.success:
                 raise HTTPException(status_code=404, detail=response.error)
             return {"success": True}

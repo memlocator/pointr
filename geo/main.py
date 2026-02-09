@@ -7,6 +7,7 @@ import math
 import httpx
 import json
 import psycopg
+from psycopg import errors as pg_errors
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 from config import settings
@@ -52,6 +53,29 @@ def init_db():
     """Create tables if they don't exist"""
     with get_pool().connection() as conn:
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS projects (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name TEXT UNIQUE NOT NULL,
+                created_by TEXT NOT NULL,
+                default_acl_mode TEXT NOT NULL DEFAULT 'NONE',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS project_members (
+                project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                username TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'owner',
+                PRIMARY KEY (project_id, username)
+            )
+        """)
+        conn.execute("""
+            INSERT INTO projects (name, created_by, default_acl_mode)
+            VALUES ('legacy', 'system', 'NONE')
+            ON CONFLICT (name) DO NOTHING
+        """)
+        legacy_id = conn.execute("SELECT id FROM projects WHERE name = 'legacy'").fetchone()['id']
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS custom_pois (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 name TEXT NOT NULL,
@@ -63,6 +87,15 @@ def init_db():
                 tags JSONB DEFAULT '{}'::jsonb,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )
+        """)
+        conn.execute("""
+            ALTER TABLE custom_pois ADD COLUMN IF NOT EXISTS project_id UUID
+        """)
+        conn.execute("""
+            UPDATE custom_pois SET project_id = %s WHERE project_id IS NULL
+        """, (legacy_id,))
+        conn.execute("""
+            ALTER TABLE custom_pois ALTER COLUMN project_id SET NOT NULL
         """)
         conn.execute("""
             ALTER TABLE custom_pois ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''
@@ -88,6 +121,15 @@ def init_db():
             )
         """)
         conn.execute("""
+            ALTER TABLE custom_areas ADD COLUMN IF NOT EXISTS project_id UUID
+        """)
+        conn.execute("""
+            UPDATE custom_areas SET project_id = %s WHERE project_id IS NULL
+        """, (legacy_id,))
+        conn.execute("""
+            ALTER TABLE custom_areas ALTER COLUMN project_id SET NOT NULL
+        """)
+        conn.execute("""
             CREATE INDEX IF NOT EXISTS custom_areas_geom_idx
                 ON custom_areas USING GIST (geom)
         """)
@@ -108,6 +150,15 @@ def init_db():
             )
         """)
         conn.execute("""
+            ALTER TABLE uploaded_sources ADD COLUMN IF NOT EXISTS project_id UUID
+        """)
+        conn.execute("""
+            UPDATE uploaded_sources SET project_id = %s WHERE project_id IS NULL
+        """, (legacy_id,))
+        conn.execute("""
+            ALTER TABLE uploaded_sources ALTER COLUMN project_id SET NOT NULL
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS uploaded_pois (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 source_id UUID NOT NULL REFERENCES uploaded_sources(id) ON DELETE CASCADE,
@@ -121,6 +172,18 @@ def init_db():
                 properties JSONB DEFAULT '{}'::jsonb,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )
+        """)
+        conn.execute("""
+            ALTER TABLE uploaded_pois ADD COLUMN IF NOT EXISTS project_id UUID
+        """)
+        conn.execute("""
+            UPDATE uploaded_pois p
+            SET project_id = s.project_id
+            FROM uploaded_sources s
+            WHERE p.project_id IS NULL AND p.source_id = s.id
+        """)
+        conn.execute("""
+            ALTER TABLE uploaded_pois ALTER COLUMN project_id SET NOT NULL
         """)
         conn.execute("""
             CREATE INDEX IF NOT EXISTS uploaded_pois_location_idx
@@ -141,9 +204,319 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
             message="Geo data service operational"
         )
 
+    def EnsureUserProject(self, request, context):
+        username = (request.username or '').strip()
+        if not username:
+            return geo_pb2.ProjectResponse(error="username required")
+        try:
+            with get_pool().connection() as conn:
+                existing = conn.execute(
+                    """
+                    SELECT p.id::text, p.name, p.default_acl_mode, pm.role
+                    FROM project_members pm
+                    JOIN projects p ON p.id = pm.project_id
+                    WHERE pm.username = %s
+                    ORDER BY (pm.role = 'owner') DESC, p.name
+                    LIMIT 1
+                    """,
+                    (username,)
+                ).fetchone()
+                if existing:
+                    project = existing
+                else:
+                    row = conn.execute(
+                        "SELECT id::text, name, created_by, default_acl_mode FROM projects WHERE name = %s",
+                        (username,)
+                    ).fetchone()
+                    if row and row['created_by'] == username:
+                        project = row
+                    else:
+                        base = username
+                        candidate = base
+                        suffix = 1
+                        while True:
+                            exists = conn.execute(
+                                "SELECT 1 FROM projects WHERE name = %s",
+                                (candidate,)
+                            ).fetchone()
+                            if not exists:
+                                break
+                            suffix += 1
+                            candidate = f"{base}-{suffix}"
+
+                        project = conn.execute(
+                            """
+                            INSERT INTO projects (name, created_by, default_acl_mode)
+                            VALUES (%s, %s, 'NONE')
+                            RETURNING id::text, name, created_by, default_acl_mode
+                            """,
+                            (candidate, username)
+                        ).fetchone()
+
+                conn.execute(
+                    """
+                    INSERT INTO project_members (project_id, username, role)
+                    VALUES (%s::uuid, %s, 'owner')
+                    ON CONFLICT (project_id, username) DO NOTHING
+                    """,
+                    (project['id'], username)
+                )
+                conn.commit()
+            return geo_pb2.ProjectResponse(
+                id=project['id'],
+                name=project['name'],
+                default_acl_mode=project['default_acl_mode'],
+                error=''
+            )
+        except Exception as e:
+            return geo_pb2.ProjectResponse(error=str(e))
+
+    def ListUserProjects(self, request, context):
+        username = (request.username or '').strip()
+        if not username:
+            return geo_pb2.ListUserProjectsResponse(error="username required")
+        try:
+            with get_pool().connection() as conn:
+                rows = conn.execute("""
+                    SELECT p.id::text, p.name, pm.role
+                    FROM project_members pm
+                    JOIN projects p ON p.id = pm.project_id
+                    WHERE pm.username = %s
+                    ORDER BY p.name
+                """, (username,)).fetchall()
+            projects = [geo_pb2.ProjectSummary(id=r['id'], name=r['name'], role=r['role']) for r in rows]
+            return geo_pb2.ListUserProjectsResponse(projects=projects, error='')
+        except Exception as e:
+            return geo_pb2.ListUserProjectsResponse(error=str(e))
+
+    def CheckProjectAccess(self, request, context):
+        username = (request.username or '').strip()
+        project_id = (request.project_id or '').strip()
+        if not username or not project_id:
+            return geo_pb2.CheckProjectAccessResponse(allowed=False, error="username and project_id required")
+        try:
+            with get_pool().connection() as conn:
+                row = conn.execute("""
+                    SELECT 1 FROM project_members
+                    WHERE username = %s AND project_id = %s::uuid
+                """, (username, project_id)).fetchone()
+            return geo_pb2.CheckProjectAccessResponse(allowed=bool(row), error='')
+        except Exception as e:
+            return geo_pb2.CheckProjectAccessResponse(allowed=False, error=str(e))
+
+    def CreateProject(self, request, context):
+        name = (request.name or '').strip()
+        username = (request.username or '').strip()
+        if not name or not username:
+            return geo_pb2.CreateProjectResponse(error="name and username required")
+        if name.lower() == 'legacy':
+            return geo_pb2.CreateProjectResponse(error="reserved project name")
+        try:
+            with get_pool().connection() as conn:
+                row = conn.execute(
+                    """
+                    INSERT INTO projects (name, created_by, default_acl_mode)
+                    VALUES (%s, %s, 'NONE')
+                    RETURNING id::text, name
+                    """,
+                    (name, username)
+                ).fetchone()
+                conn.execute(
+                    """
+                    INSERT INTO project_members (project_id, username, role)
+                    VALUES (%s::uuid, %s, 'owner')
+                    ON CONFLICT (project_id, username) DO NOTHING
+                    """,
+                    (row['id'], username)
+                )
+                conn.commit()
+            return geo_pb2.CreateProjectResponse(id=row['id'], name=row['name'], error='')
+        except pg_errors.UniqueViolation:
+            return geo_pb2.CreateProjectResponse(error="project name already exists")
+        except Exception as e:
+            return geo_pb2.CreateProjectResponse(error=str(e))
+
+    def DeleteProject(self, request, context):
+        project_id = (request.project_id or '').strip()
+        username = (request.username or '').strip()
+        if not project_id or not username:
+            return geo_pb2.DeleteProjectResponse(success=False, error="project_id and username required")
+        try:
+            with get_pool().connection() as conn:
+                role_row = conn.execute(
+                    """
+                    SELECT role FROM project_members
+                    WHERE project_id = %s::uuid AND username = %s
+                    """,
+                    (project_id, username)
+                ).fetchone()
+                if not role_row or role_row['role'] != 'owner':
+                    return geo_pb2.DeleteProjectResponse(success=False, error="only owners can delete projects")
+
+                conn.execute("DELETE FROM uploaded_pois WHERE project_id = %s::uuid", (project_id,))
+                conn.execute("DELETE FROM uploaded_sources WHERE project_id = %s::uuid", (project_id,))
+                conn.execute("DELETE FROM custom_pois WHERE project_id = %s::uuid", (project_id,))
+                conn.execute("DELETE FROM custom_areas WHERE project_id = %s::uuid", (project_id,))
+                conn.execute("DELETE FROM project_members WHERE project_id = %s::uuid", (project_id,))
+                cur = conn.execute("DELETE FROM projects WHERE id = %s::uuid", (project_id,))
+                conn.commit()
+            if cur.rowcount and cur.rowcount > 0:
+                return geo_pb2.DeleteProjectResponse(success=True, error='')
+            return geo_pb2.DeleteProjectResponse(success=False, error="project not found")
+        except Exception as e:
+            return geo_pb2.DeleteProjectResponse(success=False, error=str(e))
+
+    def AddProjectMember(self, request, context):
+        project_id = (request.project_id or '').strip()
+        username = (request.username or '').strip()
+        requester = (request.requester or '').strip()
+        if not project_id or not username or not requester:
+            return geo_pb2.ProjectMemberResponse(success=False, error="project_id, username, requester required")
+        try:
+            with get_pool().connection() as conn:
+                role_row = conn.execute(
+                    """
+                    SELECT role FROM project_members
+                    WHERE project_id = %s::uuid AND username = %s
+                    """,
+                    (project_id, requester)
+                ).fetchone()
+                if not role_row or role_row['role'] not in ('owner', 'admin'):
+                    return geo_pb2.ProjectMemberResponse(success=False, error="only admins can add members")
+                role = (request.role or 'member').strip() or 'member'
+                if role not in ('member', 'admin'):
+                    return geo_pb2.ProjectMemberResponse(success=False, error="invalid role")
+                conn.execute(
+                    """
+                    INSERT INTO project_members (project_id, username, role)
+                    VALUES (%s::uuid, %s, %s)
+                    ON CONFLICT (project_id, username) DO NOTHING
+                    """,
+                    (project_id, username, role)
+                )
+                conn.commit()
+            return geo_pb2.ProjectMemberResponse(success=True, error='')
+        except Exception as e:
+            return geo_pb2.ProjectMemberResponse(success=False, error=str(e))
+
+    def RemoveProjectMember(self, request, context):
+        project_id = (request.project_id or '').strip()
+        username = (request.username or '').strip()
+        requester = (request.requester or '').strip()
+        if not project_id or not username or not requester:
+            return geo_pb2.ProjectMemberResponse(success=False, error="project_id, username, requester required")
+        try:
+            with get_pool().connection() as conn:
+                role_row = conn.execute(
+                    """
+                    SELECT role FROM project_members
+                    WHERE project_id = %s::uuid AND username = %s
+                    """,
+                    (project_id, requester)
+                ).fetchone()
+                if not role_row:
+                    return geo_pb2.ProjectMemberResponse(success=False, error="not a member")
+                if requester == username:
+                    if role_row['role'] == 'owner':
+                        return geo_pb2.ProjectMemberResponse(success=False, error="owner cannot leave without transfer")
+                else:
+                    if role_row['role'] not in ('owner', 'admin'):
+                        return geo_pb2.ProjectMemberResponse(success=False, error="only admins can remove members")
+                    if role_row['role'] != 'owner':
+                        return geo_pb2.ProjectMemberResponse(success=False, error="only owners can remove other members")
+                target_role = conn.execute(
+                    "SELECT role FROM project_members WHERE project_id = %s::uuid AND username = %s",
+                    (project_id, username)
+                ).fetchone()
+                if target_role and target_role['role'] == 'owner':
+                    return geo_pb2.ProjectMemberResponse(success=False, error="cannot remove owner")
+                cur = conn.execute(
+                    """
+                    DELETE FROM project_members
+                    WHERE project_id = %s::uuid AND username = %s
+                    """,
+                    (project_id, username)
+                )
+                conn.commit()
+            if cur.rowcount and cur.rowcount > 0:
+                return geo_pb2.ProjectMemberResponse(success=True, error='')
+            return geo_pb2.ProjectMemberResponse(success=False, error="member not found")
+        except Exception as e:
+            return geo_pb2.ProjectMemberResponse(success=False, error=str(e))
+
+    def ListProjectMembers(self, request, context):
+        project_id = (request.project_id or '').strip()
+        requester = (request.requester or '').strip()
+        if not project_id or not requester:
+            return geo_pb2.ListProjectMembersResponse(error="project_id and requester required")
+        try:
+            with get_pool().connection() as conn:
+                allowed = conn.execute(
+                    """
+                    SELECT 1 FROM project_members
+                    WHERE project_id = %s::uuid AND username = %s
+                    """,
+                    (project_id, requester)
+                ).fetchone()
+                if not allowed:
+                    return geo_pb2.ListProjectMembersResponse(error="not a member of this project")
+                rows = conn.execute(
+                    """
+                    SELECT username, role
+                    FROM project_members
+                    WHERE project_id = %s::uuid
+                    ORDER BY role DESC, username
+                    """,
+                    (project_id,)
+                ).fetchall()
+            members = [geo_pb2.ProjectMember(username=r['username'], role=r['role']) for r in rows]
+            return geo_pb2.ListProjectMembersResponse(members=members, error='')
+        except Exception as e:
+            return geo_pb2.ListProjectMembersResponse(error=str(e))
+
+    def PromoteProjectOwner(self, request, context):
+        project_id = (request.project_id or '').strip()
+        new_owner = (request.new_owner or '').strip()
+        requester = (request.requester or '').strip()
+        if not project_id or not new_owner or not requester:
+            return geo_pb2.ProjectMemberResponse(success=False, error="project_id, new_owner, requester required")
+        try:
+            with get_pool().connection() as conn:
+                role_row = conn.execute(
+                    """
+                    SELECT role FROM project_members
+                    WHERE project_id = %s::uuid AND username = %s
+                    """,
+                    (project_id, requester)
+                ).fetchone()
+                if not role_row or role_row['role'] != 'owner':
+                    return geo_pb2.ProjectMemberResponse(success=False, error="only owner can transfer ownership")
+                target = conn.execute(
+                    """
+                    SELECT role FROM project_members
+                    WHERE project_id = %s::uuid AND username = %s
+                    """,
+                    (project_id, new_owner)
+                ).fetchone()
+                if not target:
+                    return geo_pb2.ProjectMemberResponse(success=False, error="new owner must be a member")
+                conn.execute(
+                    "UPDATE project_members SET role = 'admin' WHERE project_id = %s::uuid AND role = 'owner'",
+                    (project_id,)
+                )
+                conn.execute(
+                    "UPDATE project_members SET role = 'owner' WHERE project_id = %s::uuid AND username = %s",
+                    (project_id, new_owner)
+                )
+                conn.commit()
+            return geo_pb2.ProjectMemberResponse(success=True, error='')
+        except Exception as e:
+            return geo_pb2.ProjectMemberResponse(success=False, error=str(e))
+
     def EnrichPolygon(self, request, context):
         """Enrich a polygon with OSM data and custom POIs blended together"""
         coords = [(coord.lng, coord.lat) for coord in request.coordinates]
+        project_id = request.project_id
 
         if len(coords) < 3:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
@@ -168,13 +541,13 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
         custom_businesses = []
         if not enabled or 'custom' in enabled:
             try:
-                custom_businesses = self._get_custom_pois_in_polygon(coords)
+                custom_businesses = self._get_custom_pois_in_polygon(coords, project_id)
             except Exception as e:
                 print(f"PostGIS query error (POIs): {e}")
 
         # Query custom areas that intersect the polygon (always — used for nearby_features)
         try:
-            area_names = self._get_intersecting_area_names(coords)
+            area_names = self._get_intersecting_area_names(coords, project_id)
         except Exception as e:
             print(f"PostGIS query error (areas): {e}")
             area_names = []
@@ -192,9 +565,9 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
         uploaded_businesses = []
         try:
             if not enabled:
-                uploaded_businesses = self._get_uploaded_pois_in_polygon(coords)
+                uploaded_businesses = self._get_uploaded_pois_in_polygon(coords, project_id)
             else:
-                uploaded_businesses = self._get_uploaded_pois_in_polygon(coords, list(enabled))
+                uploaded_businesses = self._get_uploaded_pois_in_polygon(coords, project_id, list(enabled))
         except Exception as e:
             print(f"Uploaded source query error: {e}")
 
@@ -222,8 +595,8 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
             with get_pool().connection() as conn:
                 logger.debug("[GEO AddCustomPOI] executing INSERT")
                 row = conn.execute("""
-                    INSERT INTO custom_pois (name, category, description, phone, website, location, tags)
-                    VALUES (%s, %s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s::jsonb)
+                    INSERT INTO custom_pois (name, category, description, phone, website, location, tags, project_id)
+                    VALUES (%s, %s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s::jsonb, %s::uuid)
                     RETURNING id::text, name, category, description, phone, website,
                               ST_Y(location) AS lat, ST_X(location) AS lng,
                               tags::text AS tags_json
@@ -234,7 +607,8 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                     request.phone or '',
                     request.website or '',
                     request.lng, request.lat,
-                    request.tags_json or '{}'
+                    request.tags_json or '{}',
+                    request.project_id
                 )).fetchone()
                 conn.commit()
             logger.debug(f"[GEO AddCustomPOI] inserted row: {row}")
@@ -258,8 +632,8 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
         try:
             with get_pool().connection() as conn:
                 result = conn.execute(
-                    "DELETE FROM custom_pois WHERE id = %s::uuid",
-                    (request.id,)
+                    "DELETE FROM custom_pois WHERE id = %s::uuid AND project_id = %s::uuid",
+                    (request.id, request.project_id)
                 )
                 conn.commit()
                 if result.rowcount == 0:
@@ -273,11 +647,11 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
             with get_pool().connection() as conn:
                 row = conn.execute("""
                     UPDATE custom_pois SET name = %s, category = %s, description = %s, phone = %s, website = %s
-                    WHERE id = %s::uuid
+                    WHERE id = %s::uuid AND project_id = %s::uuid
                     RETURNING id::text, name, category, description, phone, website,
                               ST_Y(location) AS lat, ST_X(location) AS lng,
                               tags::text AS tags_json
-                """, (request.name, request.category, request.description or '', request.phone or '', request.website or '', request.id)).fetchone()
+                """, (request.name, request.category, request.description or '', request.phone or '', request.website or '', request.id, request.project_id)).fetchone()
                 conn.commit()
                 if not row:
                     return geo_pb2.CustomPOIResponse(error='POI not found')
@@ -306,17 +680,19 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                                ST_Y(location) AS lat, ST_X(location) AS lng,
                                tags::text AS tags_json
                         FROM custom_pois
-                        WHERE ST_Within(location, ST_MakeEnvelope(%s, %s, %s, %s, 4326))
+                        WHERE project_id = %s::uuid
+                          AND ST_Within(location, ST_MakeEnvelope(%s, %s, %s, %s, 4326))
                         ORDER BY created_at DESC
-                    """, (request.min_lng, request.min_lat, request.max_lng, request.max_lat)).fetchall()
+                    """, (request.project_id, request.min_lng, request.min_lat, request.max_lng, request.max_lat)).fetchall()
                 else:
                     rows = conn.execute("""
                         SELECT id::text, name, category, description, phone, website,
                                ST_Y(location) AS lat, ST_X(location) AS lng,
                                tags::text AS tags_json
                         FROM custom_pois
+                        WHERE project_id = %s::uuid
                         ORDER BY created_at DESC
-                    """).fetchall()
+                    """, (request.project_id,)).fetchall()
             pois = [
                 geo_pb2.CustomPOIResponse(
                     id=r['id'], name=r['name'], category=r['category'],
@@ -341,15 +717,16 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
 
             with get_pool().connection() as conn:
                 row = conn.execute("""
-                    INSERT INTO custom_areas (name, description, geom, metadata)
-                    VALUES (%s, %s, ST_GeomFromText(%s, 4326), %s::jsonb)
+                    INSERT INTO custom_areas (name, description, geom, metadata, project_id)
+                    VALUES (%s, %s, ST_GeomFromText(%s, 4326), %s::jsonb, %s::uuid)
                     RETURNING id::text, name, description, metadata::text AS metadata_json,
                               ST_AsText(geom) AS geom_wkt
                 """, (
                     request.name,
                     request.description or '',
                     polygon_wkt,
-                    request.metadata_json or '{}'
+                    request.metadata_json or '{}',
+                    request.project_id
                 )).fetchone()
                 conn.commit()
 
@@ -371,10 +748,10 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
             with get_pool().connection() as conn:
                 row = conn.execute("""
                     UPDATE custom_areas SET name = %s, description = %s
-                    WHERE id = %s::uuid
+                    WHERE id = %s::uuid AND project_id = %s::uuid
                     RETURNING id::text, name, description, metadata::text AS metadata_json,
                               ST_AsText(geom) AS geom_wkt
-                """, (request.name, request.description, request.id)).fetchone()
+                """, (request.name, request.description, request.id, request.project_id)).fetchone()
                 conn.commit()
                 if not row:
                     return geo_pb2.CustomAreaResponse(error='Area not found')
@@ -393,8 +770,8 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
         try:
             with get_pool().connection() as conn:
                 result = conn.execute(
-                    "DELETE FROM custom_areas WHERE id = %s::uuid",
-                    (request.id,)
+                    "DELETE FROM custom_areas WHERE id = %s::uuid AND project_id = %s::uuid",
+                    (request.id, request.project_id)
                 )
                 conn.commit()
                 if result.rowcount == 0:
@@ -411,8 +788,9 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                            metadata::text AS metadata_json,
                            ST_AsText(geom) AS geom_wkt
                     FROM custom_areas
+                    WHERE project_id = %s::uuid
                     ORDER BY created_at DESC
-                """).fetchall()
+                """, (request.project_id,)).fetchall()
             areas = [
                 geo_pb2.CustomAreaResponse(
                     id=r['id'],
@@ -440,9 +818,10 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                            metadata::text AS metadata_json,
                            ST_AsText(geom) AS geom_wkt
                     FROM custom_areas
-                    WHERE ST_Intersects(geom, ST_GeomFromText(%s, 4326))
+                    WHERE project_id = %s::uuid
+                      AND ST_Intersects(geom, ST_GeomFromText(%s, 4326))
                     ORDER BY created_at DESC
-                """, (polygon_wkt,)).fetchall()
+                """, (request.project_id, polygon_wkt)).fetchall()
             areas = [
                 geo_pb2.CustomAreaResponse(
                     id=r['id'],
@@ -516,11 +895,11 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
 
             with get_pool().connection() as conn:
                 row = conn.execute("""
-                    INSERT INTO uploaded_sources (name)
-                    VALUES (%s)
+                    INSERT INTO uploaded_sources (name, project_id)
+                    VALUES (%s, %s::uuid)
                     ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
                     RETURNING id::text
-                """, (request.name,)).fetchone()
+                """, (request.name, request.project_id)).fetchone()
                 source_id = row['id']
 
                 conn.execute("DELETE FROM uploaded_pois WHERE source_id = %s::uuid", (source_id,))
@@ -547,13 +926,13 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                         cur.executemany("""
                             INSERT INTO uploaded_pois (
                                 source_id, name, category, description, phone, website, email,
-                                location, properties
+                                location, properties, project_id
                             )
                             VALUES (
                                 %s::uuid, %s, %s, %s, %s, %s, %s,
-                                ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s::jsonb
+                                ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s::jsonb, %s::uuid
                             )
-                        """, insert_rows)
+                        """, [(*r, request.project_id) for r in insert_rows])
 
                 conn.commit()
 
@@ -572,14 +951,17 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
     def ListUploadedSources(self, request, context):
         """List all uploaded datasources"""
         # TODO: check authentication when auth is implemented
+        if not request.project_id:
+            return geo_pb2.ListUploadedSourcesResponse(sources=[])
         with get_pool().connection() as conn:
             rows = conn.execute("""
                 SELECT s.name, COUNT(p.id) AS feature_count
                 FROM uploaded_sources s
                 LEFT JOIN uploaded_pois p ON p.source_id = s.id
+                WHERE s.project_id = %s::uuid
                 GROUP BY s.name
                 ORDER BY s.name
-            """).fetchall()
+            """, (request.project_id,)).fetchall()
         sources = [geo_pb2.UploadedSource(name=r['name'], feature_count=r['feature_count']) for r in rows]
         return geo_pb2.ListUploadedSourcesResponse(sources=sources)
 
@@ -587,14 +969,14 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
         """Delete an uploaded datasource"""
         # TODO: check authentication when auth is implemented
         with get_pool().connection() as conn:
-            cur = conn.execute("DELETE FROM uploaded_sources WHERE name = %s", (request.name,))
+            cur = conn.execute("DELETE FROM uploaded_sources WHERE name = %s AND project_id = %s::uuid", (request.name, request.project_id))
             conn.commit()
         if cur.rowcount and cur.rowcount > 0:
             logger.debug(f"[DeleteUploadedSource] deleted {request.name}")
             return geo_pb2.DeleteResponse(success=True, error='')
         return geo_pb2.DeleteResponse(success=False, error='Source not found')
 
-    def _get_custom_pois_in_polygon(self, coords) -> list:
+    def _get_custom_pois_in_polygon(self, coords, project_id: str) -> list:
         """Query PostGIS for custom POIs within a polygon using ST_Within"""
         wkt_coords = ", ".join(f"{lng} {lat}" for lng, lat in coords)
         polygon_wkt = f"POLYGON(({wkt_coords}))"
@@ -605,8 +987,9 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                        ST_Y(location) AS lat, ST_X(location) AS lng,
                        tags::text AS tags_json
                 FROM custom_pois
-                WHERE ST_Within(location, ST_GeomFromText(%s, 4326))
-            """, (polygon_wkt,)).fetchall()
+                WHERE project_id = %s::uuid
+                  AND ST_Within(location, ST_GeomFromText(%s, 4326))
+            """, (project_id, polygon_wkt)).fetchall()
 
         return [
             geo_pb2.Business(
@@ -668,7 +1051,7 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
             for row in rows
         ]
 
-    def _get_uploaded_pois_in_polygon(self, coords, source_names: list[str] | None = None) -> list:
+    def _get_uploaded_pois_in_polygon(self, coords, project_id: str, source_names: list[str] | None = None) -> list:
         """Query uploaded sources (PostGIS) for features within the polygon."""
         wkt_coords = ", ".join(f"{lng} {lat}" for lng, lat in coords)
         polygon_wkt = f"POLYGON(({wkt_coords}))"
@@ -680,16 +1063,19 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                            ST_Y(p.location) AS lat, ST_X(p.location) AS lng
                     FROM uploaded_pois p
                     JOIN uploaded_sources s ON s.id = p.source_id
-                    WHERE s.name = ANY(%s) AND ST_Within(p.location, ST_GeomFromText(%s, 4326))
-                """, (source_names, polygon_wkt)).fetchall()
+                    WHERE s.project_id = %s::uuid
+                      AND s.name = ANY(%s)
+                      AND ST_Within(p.location, ST_GeomFromText(%s, 4326))
+                """, (project_id, source_names, polygon_wkt)).fetchall()
             else:
                 rows = conn.execute("""
                     SELECT p.id::text, s.name AS source_name, p.name, p.category, p.description, p.phone, p.website, p.email,
                            ST_Y(p.location) AS lat, ST_X(p.location) AS lng
                     FROM uploaded_pois p
                     JOIN uploaded_sources s ON s.id = p.source_id
-                    WHERE ST_Within(p.location, ST_GeomFromText(%s, 4326))
-                """, (polygon_wkt,)).fetchall()
+                    WHERE s.project_id = %s::uuid
+                      AND ST_Within(p.location, ST_GeomFromText(%s, 4326))
+                """, (project_id, polygon_wkt)).fetchall()
 
         return [
             geo_pb2.Business(
@@ -708,7 +1094,7 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
             for row in rows
         ]
 
-    def _get_intersecting_area_names(self, coords) -> list[str]:
+    def _get_intersecting_area_names(self, coords, project_id: str) -> list[str]:
         """Query PostGIS for custom areas that intersect the given polygon"""
         wkt_coords = ", ".join(f"{lng} {lat}" for lng, lat in coords)
         polygon_wkt = f"POLYGON(({wkt_coords}))"
@@ -716,9 +1102,10 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
         with get_pool().connection() as conn:
             rows = conn.execute("""
                 SELECT name FROM custom_areas
-                WHERE ST_Intersects(geom, ST_GeomFromText(%s, 4326))
+                WHERE project_id = %s::uuid
+                  AND ST_Intersects(geom, ST_GeomFromText(%s, 4326))
                 ORDER BY name
-            """, (polygon_wkt,)).fetchall()
+            """, (project_id, polygon_wkt)).fetchall()
 
         return [row['name'] for row in rows]
 
