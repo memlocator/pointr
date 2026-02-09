@@ -21,6 +21,7 @@ All settings are read from environment variables (or `.env` at the repo root). S
 | `BACKEND_PORT` | `8000` | HTTP port |
 | `DEV_MODE` | `false` | Enables dev-only features (impersonation) |
 | `DEV_IMPERSONATE_HEADER` | `X-Dev-Impersonate` | Header used for dev impersonation |
+| `AUTH_USER_HEADER` | `X-User` | Header used for user identity |
 | `GEO_HOST` | `geo` | Geo service hostname |
 | `GEO_PORT` | `50051` | Geo service gRPC port |
 | `RECON_HOST` | `recon` | Recon service hostname |
@@ -35,7 +36,7 @@ All settings are read from environment variables (or `.env` at the repo root). S
 
 Interactive docs: http://localhost:8000/docs
 
-All authenticated requests require an `X-User` header (in dev, the Nginx proxy injects it). In `DEV_MODE`, you can also supply `X-Dev-Impersonate` to override the user for local testing.
+All authenticated requests require the header configured via `AUTH_USER_HEADER` (defaults to `X-User`; in dev, the Nginx proxy injects it). In `DEV_MODE`, you can also supply `X-Dev-Impersonate` to override the user for local testing.
 
 ### System
 

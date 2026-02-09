@@ -92,6 +92,7 @@ services:
       - PYTHONUNBUFFERED=1
       - GEO_ADDITIONAL_DBS=${GEO_ADDITIONAL_DBS:-[]}
       - DEV_MODE=true
+      - AUTH_USER_HEADER=${AUTH_USER_HEADER:-X-User}
     depends_on:
       - geo
       - recon

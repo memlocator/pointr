@@ -73,7 +73,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-AUTH_USER_HEADER = "X-User"
+AUTH_USER_HEADER = settings.auth_user_header
 DEV_IMPERSONATE_HEADER = settings.dev_impersonate_header
 
 def ensure_user_project_id(username: str) -> str:

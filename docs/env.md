@@ -29,6 +29,7 @@ GEO_ADDITIONAL_DBS=[{"name":"Municipal","url":"postgresql://user:pass@host:5432/
 - `BACKEND_PORT` (default: `8000`)
 - `DEV_MODE` (default: `false`) — enables dev-only features like impersonation
 - `DEV_IMPERSONATE_HEADER` (default: `X-Dev-Impersonate`) — header used to impersonate users in dev mode
+- `AUTH_USER_HEADER` (default: `X-User`) — header used for user identity
 - `GEO_HOST` (default: `geo`)
 - `GEO_PORT` (default: `50051`)
 - `RECON_HOST` (default: `recon`)

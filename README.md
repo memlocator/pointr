@@ -131,7 +131,7 @@ Services:
 - Promtail: http://localhost:9080
 
 Notes:
-- In dev, all frontend API calls go through the Nginx dev proxy at `:8081`, which injects `X-User`.
+- In dev, all frontend API calls go through the Nginx dev proxy at `:8081`, which injects `X-User` (configurable via `AUTH_USER_HEADER`).
 - `DEV_MODE=true` enables the optional `X-Dev-Impersonate` header for local testing only.
 - Promtail has no UI. Use Grafana to view logs; Promtail exposes metrics at `http://localhost:9080/metrics`.
 

@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     # Dev mode
     dev_mode: bool = False
     dev_impersonate_header: str = "X-Dev-Impersonate"
+    auth_user_header: str = "X-User"
 
     # Additional PostGIS sources (same JSON as GEO_ADDITIONAL_DBS)
     geo_additional_dbs: str = "[]"
