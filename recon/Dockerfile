@@ -19,6 +19,9 @@ RUN uv run python -m grpc_tools.protoc \
     --grpc_python_out=. \
     recon.proto
 
+# Copy shared common module
+COPY common/ /app/common/
+
 # Copy application code
 COPY recon/main.py ./
 COPY recon/dev_server.py ./

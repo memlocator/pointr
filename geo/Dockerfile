@@ -19,6 +19,9 @@ RUN uv run python -m grpc_tools.protoc \
     --grpc_python_out=. \
     geo.proto
 
+# Copy shared common module
+COPY common/ /app/common/
+
 # Copy application code
 COPY geo/main.py ./
 COPY geo/dev_server.py ./
