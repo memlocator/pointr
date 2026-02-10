@@ -42,11 +42,3 @@ export function clearFromStorage(key) {
     console.error(`Error clearing ${key} from localStorage:`, error)
   }
 }
-
-/**
- * Clear all app data from localStorage
- */
-export function clearAllStorage() {
-  const keys = ['polygons', 'businesses', 'mapCenter', 'mapZoom']
-  keys.forEach(key => clearFromStorage(key))
-}

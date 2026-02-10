@@ -40,8 +40,10 @@ function startEdit() {
   class="fixed inset-0 bg-black/60 flex items-center justify-center"
   style="z-index: 2000;"
   onclick={(e) => { if (e.target === e.currentTarget) onClose() }}
+  onkeydown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) onClose() }}
   role="dialog"
   aria-modal="true"
+  tabindex="0"
 >
   <div class="bg-gray-900 border-2 border-gray-700 w-full max-w-2xl max-h-[80vh] flex flex-col mx-4">
     <!-- Header -->
@@ -71,7 +73,7 @@ function startEdit() {
             class="text-xs text-amber-400 hover:text-amber-300 px-2 py-1 border border-gray-700 hover:border-amber-500"
           >Edit</button>
         {/if}
-        <button onclick={onClose} class="text-gray-500 hover:text-gray-300">
+        <button onclick={onClose} class="text-gray-500 hover:text-gray-300" aria-label="Close dialog">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 2 L12 12 M12 2 L2 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         </button>
       </div>
