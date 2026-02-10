@@ -26,7 +26,9 @@ services:
       # Mount source code for hot reloading
       - ./geo/main.py:/app/main.py
       - ./geo/config.py:/app/config.py
+      - ./geo/dev_server.py:/app/dev_server.py
       - ./geo/pyproject.toml:/app/pyproject.toml
+      - ./common:/app/common
     environment:
       - PYTHONUNBUFFERED=1
       - GEO_DB_URL=${GEO_DB_URL}
@@ -72,7 +74,9 @@ services:
       # Mount source code for hot reloading
       - ./recon/main.py:/app/main.py
       - ./recon/config.py:/app/config.py
+      - ./recon/dev_server.py:/app/dev_server.py
       - ./recon/pyproject.toml:/app/pyproject.toml
+      - ./common:/app/common
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped

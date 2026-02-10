@@ -76,8 +76,16 @@ app.add_middleware(
 AUTH_USER_HEADER = settings.auth_user_header
 DEV_IMPERSONATE_HEADER = settings.dev_impersonate_header
 
+def get_geo_channel():
+    """Create a gRPC channel to the geo service."""
+    return grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}')
+
+def get_recon_channel():
+    """Create a gRPC channel to the recon service."""
+    return grpc.insecure_channel(f'{settings.recon_host}:{settings.recon_port}')
+
 def ensure_user_project_id(username: str) -> str:
-    with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+    with get_geo_channel() as channel:
         stub = geo_pb2_grpc.GeoDataServiceStub(channel)
         resp = stub.EnsureUserProject(geo_pb2.EnsureUserProjectRequest(username=username))
         if resp.error:
@@ -85,7 +93,7 @@ def ensure_user_project_id(username: str) -> str:
         return resp.id
 
 def check_project_access(username: str, project_id: str) -> bool:
-    with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+    with get_geo_channel() as channel:
         stub = geo_pb2_grpc.GeoDataServiceStub(channel)
         resp = stub.CheckProjectAccess(geo_pb2.CheckProjectAccessRequest(username=username, project_id=project_id))
         if resp.error:
@@ -478,7 +486,7 @@ async def health_check(request: Request, project_id: str | None = None):
 
     # Check geo service
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             response = stub.Health(
                 geo_pb2.HealthRequest(),
@@ -503,7 +511,7 @@ async def health_check(request: Request, project_id: str | None = None):
 
     # Check recon service
     try:
-        with grpc.insecure_channel(f'{settings.recon_host}:{settings.recon_port}') as channel:
+        with get_recon_channel() as channel:
             stub = recon_pb2_grpc.ReconServiceStub(channel)
             # Call health check endpoint (doesn't hit external services)
             response = stub.Health(
@@ -558,7 +566,7 @@ async def health_check(request: Request, project_id: str | None = None):
     # Add uploaded sources (in-memory)
     try:
         effective_project_id = resolve_project_id(request, project_id)
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             response = stub.ListUploadedSources(
                 geo_pb2.ListUploadedSourcesRequest(project_id=effective_project_id)
@@ -569,7 +577,7 @@ async def health_check(request: Request, project_id: str | None = None):
                     "status": "online",
                     "message": f"{src.feature_count} features (uploaded)"
                 })
-    except Exception as e:
+    except Exception:
         pass  # Silently skip if geo service unavailable
 
     health_status["datasources"] = datasources
@@ -588,7 +596,7 @@ async def get_current_user(request: Request):
 @app.get("/api/projects", tags=["auth"], summary="List projects for current user")
 async def list_projects(request: Request):
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             resp = stub.ListUserProjects(geo_pb2.ListUserProjectsRequest(username=request.state.user))
             if resp.error:
@@ -603,7 +611,7 @@ async def create_project(payload: CreateProjectRequest, request: Request):
     if not name:
         raise HTTPException(status_code=400, detail="Project name is required")
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             resp = stub.CreateProject(
                 geo_pb2.CreateProjectRequest(name=name, username=request.state.user)
@@ -619,7 +627,7 @@ async def create_project(payload: CreateProjectRequest, request: Request):
 @app.delete("/api/projects/{project_id}", tags=["auth"], summary="Delete project")
 async def delete_project(project_id: str, request: Request):
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             resp = stub.DeleteProject(
                 geo_pb2.DeleteProjectRequest(project_id=project_id, username=request.state.user)
@@ -641,7 +649,7 @@ async def add_project_members(project_id: str, payload: ProjectMembersRequest, r
     if role not in ("member", "admin"):
         raise HTTPException(status_code=400, detail="Invalid role")
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             for username in usernames:
                 resp = stub.AddProjectMember(
@@ -663,7 +671,7 @@ async def add_project_members(project_id: str, payload: ProjectMembersRequest, r
 @app.delete("/api/projects/{project_id}/members/{username}", tags=["auth"], summary="Remove project member")
 async def remove_project_member(project_id: str, username: str, request: Request):
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             resp = stub.RemoveProjectMember(
                 geo_pb2.RemoveProjectMemberRequest(
@@ -688,7 +696,7 @@ async def transfer_project_owner(project_id: str, payload: ProjectMembersRequest
     if not new_owner:
         raise HTTPException(status_code=400, detail="Username required")
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             resp = stub.PromoteProjectOwner(
                 geo_pb2.PromoteProjectOwnerRequest(
@@ -708,7 +716,7 @@ async def transfer_project_owner(project_id: str, payload: ProjectMembersRequest
 @app.get("/api/projects/{project_id}/members", tags=["auth"], summary="List project members")
 async def list_project_members(project_id: str, request: Request):
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             resp = stub.ListProjectMembers(
                 geo_pb2.ListProjectMembersRequest(project_id=project_id, requester=request.state.user)
@@ -729,7 +737,7 @@ async def enrich_polygon(payload: PolygonRequest, request: Request):
     blended list of OSM and custom POIs with `source` tagged as `"osm"` or `"custom"`.
     """
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
 
             proto_coords = [
@@ -781,7 +789,7 @@ async def run_recon(request: ReconRequest):
     """
     try:
         # Connect to recon service
-        with grpc.insecure_channel(f'{settings.recon_host}:{settings.recon_port}') as channel:
+        with get_recon_channel() as channel:
             stub = recon_pb2_grpc.ReconServiceStub(channel)
 
             # Make RPC call
@@ -878,7 +886,7 @@ async def run_recon_stream(request: ReconRequest):
     async def event_generator():
         try:
             # Connect to recon service
-            with grpc.insecure_channel(f'{settings.recon_host}:{settings.recon_port}') as channel:
+            with get_recon_channel() as channel:
                 stub = recon_pb2_grpc.ReconServiceStub(channel)
 
                 # Call streaming RPC
@@ -985,7 +993,7 @@ async def run_recon_stream(request: ReconRequest):
 async def add_custom_poi(payload: CustomPOIRequest, request: Request):
     """Create a new custom point of interest. Returns the created POI with its assigned UUID."""
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             project_id = resolve_project_id(request, payload.project_id)
             response = stub.AddCustomPOI(geo_pb2.AddCustomPOIRequest(
@@ -1033,7 +1041,7 @@ async def list_custom_pois(
     `min_lat`, `min_lng`, `max_lat`, `max_lng` query parameters.
     """
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             effective_project_id = resolve_project_id(request, project_id)
             response = stub.ListCustomPOIs(geo_pb2.ListCustomPOIsRequest(
@@ -1060,7 +1068,7 @@ async def list_custom_pois(
 async def update_custom_poi(poi_id: str, payload: UpdateCustomPOIRequest, request: Request):
     """Update the name, category, or description of an existing custom POI."""
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             project_id = resolve_project_id(request, payload.project_id)
             response = stub.UpdateCustomPOI(geo_pb2.UpdateCustomPOIRequest(
@@ -1093,7 +1101,7 @@ async def update_custom_poi(poi_id: str, payload: UpdateCustomPOIRequest, reques
 async def delete_custom_poi(poi_id: str, request: Request, project_id: str | None = None):
     """Permanently delete a custom POI by its UUID."""
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             effective_project_id = resolve_project_id(request, project_id)
             response = stub.DeleteCustomPOI(geo_pb2.DeleteCustomPOIRequest(id=poi_id, project_id=effective_project_id))
@@ -1116,7 +1124,7 @@ async def upload_datasource(payload: UploadSourceRequest, request: Request):
     """
     # TODO: check authentication when auth is implemented
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             project_id = resolve_project_id(request, payload.project_id)
             response = stub.UploadSource(geo_pb2.UploadSourceRequest(
@@ -1143,7 +1151,7 @@ async def list_datasources(request: Request, project_id: str | None = None):
     """
     # TODO: check authentication when auth is implemented
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             effective_project_id = resolve_project_id(request, project_id)
             response = stub.ListUploadedSources(geo_pb2.ListUploadedSourcesRequest(project_id=effective_project_id))
@@ -1164,7 +1172,7 @@ async def delete_datasource(name: str, request: Request, project_id: str | None 
     """
     # TODO: check authentication when auth is implemented
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             effective_project_id = resolve_project_id(request, project_id)
             response = stub.DeleteUploadedSource(geo_pb2.DeleteUploadedSourceRequest(name=name, project_id=effective_project_id))
@@ -1179,7 +1187,7 @@ async def delete_datasource(name: str, request: Request, project_id: str | None 
 async def add_custom_area(payload: CustomAreaRequest, request: Request):
     """Create a new custom polygon area. The polygon is stored in PostGIS and returned with its UUID."""
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             proto_coords = [geo_pb2.Coordinate(lat=c.lat, lng=c.lng) for c in payload.coordinates]
             project_id = resolve_project_id(request, payload.project_id)
@@ -1207,7 +1215,7 @@ async def add_custom_area(payload: CustomAreaRequest, request: Request):
 async def list_custom_areas(request: Request, project_id: str | None = None):
     """List all custom polygon areas with their coordinate rings and metadata."""
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             effective_project_id = resolve_project_id(request, project_id)
             response = stub.ListCustomAreas(geo_pb2.ListCustomAreasRequest(project_id=effective_project_id))
@@ -1226,7 +1234,7 @@ async def list_custom_areas(request: Request, project_id: str | None = None):
 async def list_intersecting_custom_areas(payload: PolygonRequest, request: Request):
     """Return only custom areas that intersect the provided polygon."""
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
 
             proto_coords = [
@@ -1261,7 +1269,7 @@ async def list_intersecting_custom_areas(payload: PolygonRequest, request: Reque
 async def update_custom_area(area_id: str, payload: UpdateCustomAreaRequest, request: Request):
     """Update the name or description of an existing custom area."""
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             project_id = resolve_project_id(request, payload.project_id)
             response = stub.UpdateCustomArea(geo_pb2.UpdateCustomAreaRequest(
@@ -1287,7 +1295,7 @@ async def update_custom_area(area_id: str, payload: UpdateCustomAreaRequest, req
 async def delete_custom_area(area_id: str, request: Request, project_id: str | None = None):
     """Permanently delete a custom area by its UUID."""
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             effective_project_id = resolve_project_id(request, project_id)
             response = stub.DeleteCustomArea(geo_pb2.DeleteCustomAreaRequest(id=area_id, project_id=effective_project_id))
@@ -1396,7 +1404,7 @@ async def get_route(request: RouteRequest):
 async def save_route(request: SaveRouteRequest):
     """Save a named route with stops to the database."""
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             response = stub.AddRoute(geo_pb2.AddRouteRequest(
                 name=request.name,
@@ -1418,7 +1426,7 @@ async def save_route(request: SaveRouteRequest):
 async def list_saved_routes():
     """List all saved routes ordered by creation date descending."""
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             response = stub.ListRoutes(geo_pb2.ListRoutesRequest())
             if response.error:
@@ -1438,7 +1446,7 @@ async def list_saved_routes():
 async def delete_saved_route(route_id: str):
     """Delete a saved route by ID."""
     try:
-        with grpc.insecure_channel(f'{settings.geo_host}:{settings.geo_port}') as channel:
+        with get_geo_channel() as channel:
             stub = geo_pb2_grpc.GeoDataServiceStub(channel)
             response = stub.DeleteRoute(geo_pb2.DeleteRouteRequest(id=route_id))
             if not response.success:
