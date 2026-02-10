@@ -817,7 +817,7 @@
     lastRoutePolygonId = ids[0]
     savePolygons()
 
-    // Show hatch overlay on the unsaved buffer polygon
+    // Show hatch overlay on the unsaved buffer polygon (no outline)
     map.getSource('route-buffer-overlay')?.setData({ type: 'FeatureCollection', features: [{ ...feature, id: lastRoutePolygonId }] })
 
     isEnriching = true
@@ -1230,12 +1230,6 @@
         type: 'fill',
         source: 'route-buffer-overlay',
         paint: { 'fill-pattern': 'route-buffer-hatch' }
-      })
-      map.addLayer({
-        id: 'route-buffer-hatch-outline',
-        type: 'line',
-        source: 'route-buffer-overlay',
-        paint: { 'line-color': '#f97316', 'line-width': 1.5, 'line-opacity': 0.7, 'line-dasharray': [4, 3] }
       })
 
       // Add preview circle source for circle drawing

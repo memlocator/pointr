@@ -6,7 +6,6 @@ from shapely.geometry import Polygon, Point, box
 import math
 import httpx
 import json
-import psycopg
 from psycopg import errors as pg_errors
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
@@ -712,8 +711,7 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
             # Ensure polygon is closed
             if coords[0] != coords[-1]:
                 coords.append(coords[0])
-            wkt_coords = ", ".join(f"{lng} {lat}" for lng, lat in coords)
-            polygon_wkt = f"POLYGON(({wkt_coords}))"
+            polygon_wkt = self._coords_to_polygon_wkt(coords)
 
             with get_pool().connection() as conn:
                 row = conn.execute("""
@@ -810,8 +808,7 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
             coords = [(c.lng, c.lat) for c in request.coordinates]
             if len(coords) < 3:
                 return geo_pb2.ListCustomAreasResponse(areas=[], error='')
-            wkt_coords = ", ".join(f"{lng} {lat}" for lng, lat in coords)
-            polygon_wkt = f"POLYGON(({wkt_coords}))"
+            polygon_wkt = self._coords_to_polygon_wkt(coords)
             with get_pool().connection() as conn:
                 rows = conn.execute("""
                     SELECT id::text, name, description,
@@ -978,8 +975,7 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
 
     def _get_custom_pois_in_polygon(self, coords, project_id: str) -> list:
         """Query PostGIS for custom POIs within a polygon using ST_Within"""
-        wkt_coords = ", ".join(f"{lng} {lat}" for lng, lat in coords)
-        polygon_wkt = f"POLYGON(({wkt_coords}))"
+        polygon_wkt = self._coords_to_polygon_wkt(coords)
 
         with get_pool().connection() as conn:
             rows = conn.execute("""
@@ -1010,13 +1006,11 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
 
     def _get_additional_db_pois_in_polygon(self, db, coords) -> list:
         """Query an additional PostGIS source for features within the polygon."""
-        from config import AdditionalDB
         pool = _additional_pools.get(db.name)
         if pool is None:
             return []
 
-        wkt_coords = ", ".join(f"{lng} {lat}" for lng, lat in coords)
-        polygon_wkt = f"POLYGON(({wkt_coords}))"
+        polygon_wkt = self._coords_to_polygon_wkt(coords)
 
         # Build SELECT with optional columns (table/column names are operator-supplied config)
         select_parts = [
@@ -1053,8 +1047,7 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
 
     def _get_uploaded_pois_in_polygon(self, coords, project_id: str, source_names: list[str] | None = None) -> list:
         """Query uploaded sources (PostGIS) for features within the polygon."""
-        wkt_coords = ", ".join(f"{lng} {lat}" for lng, lat in coords)
-        polygon_wkt = f"POLYGON(({wkt_coords}))"
+        polygon_wkt = self._coords_to_polygon_wkt(coords)
 
         with get_pool().connection() as conn:
             if source_names:
@@ -1096,8 +1089,7 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
 
     def _get_intersecting_area_names(self, coords, project_id: str) -> list[str]:
         """Query PostGIS for custom areas that intersect the given polygon"""
-        wkt_coords = ", ".join(f"{lng} {lat}" for lng, lat in coords)
-        polygon_wkt = f"POLYGON(({wkt_coords}))"
+        polygon_wkt = self._coords_to_polygon_wkt(coords)
 
         with get_pool().connection() as conn:
             rows = conn.execute("""
@@ -1119,6 +1111,11 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
             if len(parts) == 2:
                 coords.append(geo_pb2.Coordinate(lat=float(parts[1]), lng=float(parts[0])))
         return coords
+
+    def _coords_to_polygon_wkt(self, coords: list) -> str:
+        """Convert list of (lng, lat) tuples to POLYGON WKT format"""
+        wkt_coords = ", ".join(f"{lng} {lat}" for lng, lat in coords)
+        return f"POLYGON(({wkt_coords}))"
 
     def _calculate_area_km2(self, polygon):
         area_deg2 = polygon.area
@@ -1167,61 +1164,49 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
 
         polygon = Polygon(coords)
 
-        business_amenities = [
-            "restaurant", "cafe", "fast_food", "bar", "pub", "food_court",
-            "bank", "pharmacy", "clinic", "doctors", "dentist", "hospital",
-            "fuel", "car_rental", "car_wash", "veterinary",
-            "marketplace", "post_office", "bureau_de_change"
-        ]
-
-        government_amenities = [
-            "townhall", "courthouse", "police", "fire_station",
-            "community_centre", "social_facility", "public_building",
-            "government", "embassy", "prison", "ranger_station",
-            "public_bath", "library", "courthouse", "archive"
-        ]
-
-        amenity_filter = "|".join(business_amenities + government_amenities)
-
-        government_types = [
-            "parliament", "legislative", "legislature", "ministry",
-            "administrative", "regional", "local", "national",
-            "government", "public_service", "tax", "social_security",
-            "register_office", "customs", "bailiff", "prosecutor"
-        ]
-
-        government_filter = "|".join(government_types)
-
         lats = [lat for lng, lat in coords]
         lngs = [lng for lng, lat in coords]
         bbox = f"{min(lats)},{min(lngs)},{max(lats)},{max(lngs)}"
 
+        area_filter = ""
         if circle_params:
             center_lat, center_lng, radius_m = circle_params
-            print(f"Querying Overpass with bbox (circle detected: center=({center_lat:.6f}, {center_lng:.6f}), radius={radius_m}m): {bbox}")
+            print(f"Querying Overpass with around (center=({center_lat:.6f}, {center_lng:.6f}), radius={radius_m}m)")
+            area_filter = f"(around:{radius_m},{center_lat},{center_lng})"
         else:
-            print(f"Querying Overpass with bbox: {bbox}")
+            # Overpass poly expects "lat lon lat lon ..."
+            poly = " ".join([f"{lat} {lng}" for lng, lat in coords])
+            area_filter = f'(poly:"{poly}")'
+            print("Querying Overpass with polygon filter")
 
         query = f"""
-        [out:json][timeout:60][bbox:{bbox}];
+        [out:json][timeout:120];
         (
-          nwr["office"="government"];
-          nwr["government"];
-          nwr["building"~"^(government|public|palace|castle)$"];
-          nwr["historic"~"^(castle|palace|monument|memorial|fort)$"];
-          nwr["tourism"~"^(attraction|museum)$"];
-          nwr["amenity"~"^(restaurant|cafe|bank|hospital|townhall|courthouse|police|embassy|post_office|bus_station|ferry_terminal)$"];
-          nwr["shop"];
-          nwr["office"~"^(telecommunication|energy|it|company|transport|railway|airline|logistics|courier|delivery|water_utility)$"];
-          nwr["aeroway"~"^(aerodrome|terminal|hangar)$"];
-          nwr["railway"~"^(station|halt)$"];
-          nwr["public_transport"="station"];
-          nwr["man_made"~"^(mast|communications_tower|water_tower|water_works|wastewater_plant)$"];
-          nwr["power"~"^(plant|substation|generator)$"];
-          nwr["landuse"~"^(port|industrial)$"];
-          nwr["amenity"="post_depot"];
+          nwr["shop"]{area_filter};
+          nwr["office"]{area_filter};
+          nwr["amenity"="restaurant"]{area_filter};
+          nwr["amenity"="cafe"]{area_filter};
+          nwr["amenity"="bank"]{area_filter};
+          nwr["amenity"="hospital"]{area_filter};
+          nwr["amenity"="townhall"]{area_filter};
+          nwr["amenity"="courthouse"]{area_filter};
+          nwr["amenity"="police"]{area_filter};
+          nwr["amenity"="embassy"]{area_filter};
+          nwr["amenity"="post_office"]{area_filter};
+          nwr["amenity"="bus_station"]{area_filter};
+          nwr["amenity"="ferry_terminal"]{area_filter};
+          nwr["government"]{area_filter};
+          nwr["building"="government"]{area_filter};
+          nwr["aeroway"="aerodrome"]{area_filter};
+          nwr["aeroway"="terminal"]{area_filter};
+          nwr["public_transport"="station"]{area_filter};
+          nwr["railway"="station"]{area_filter};
+          nwr["power"="plant"]{area_filter};
+          nwr["power"="substation"]{area_filter};
+          nwr["man_made"="mast"]{area_filter};
+          nwr["man_made"="communications_tower"]{area_filter};
         );
-        out bb center;
+        out tags center;
         """
 
         try:
@@ -1292,22 +1277,9 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                     print(f"  WARNING: No coordinates found for {name}, skipping")
                     continue
 
-                if 'bounds' in element:
-                    bounds = element['bounds']
-                    entity_bbox = box(
-                        bounds['minlon'], bounds['minlat'],
-                        bounds['maxlon'], bounds['maxlat']
-                    )
-                    if not polygon.intersects(entity_bbox):
-                        if tags.get('aeroway') == 'aerodrome':
-                            print(f"  DEBUG: Aerodrome {name} filtered out - bbox doesn't intersect")
-                        continue
-                else:
-                    point = Point(lng, lat)
-                    if not polygon.contains(point):
-                        if tags.get('aeroway') == 'aerodrome':
-                            print(f"  DEBUG: Aerodrome {name} filtered out - center not in polygon")
-                        continue
+                point = Point(lng, lat)
+                if not polygon.contains(point):
+                    continue
 
                 idx = len(businesses)
                 businesses.append(geo_pb2.Business(
