@@ -14,6 +14,7 @@ service GeoDataService {
   rpc RemoveProjectMember(RemoveProjectMemberRequest) returns (ProjectMemberResponse);
   rpc ListProjectMembers(ListProjectMembersRequest) returns (ListProjectMembersResponse);
   rpc PromoteProjectOwner(PromoteProjectOwnerRequest) returns (ProjectMemberResponse);
+  rpc UpdateProjectMemberRole(UpdateProjectMemberRoleRequest) returns (ProjectMemberResponse);
 
   rpc AddCustomPOI(AddCustomPOIRequest) returns (CustomPOIResponse);
   rpc UpdateCustomPOI(UpdateCustomPOIRequest) returns (CustomPOIResponse);
@@ -240,6 +241,13 @@ message PromoteProjectOwnerRequest {
   string project_id = 1;
   string new_owner = 2;
   string requester = 3;
+}
+
+message UpdateProjectMemberRoleRequest {
+  string project_id = 1;
+  string username = 2;
+  string new_role = 3;
+  string requester = 4;
 }
 
 message ListProjectMembersRequest {

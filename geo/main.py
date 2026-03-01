@@ -521,6 +521,60 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
         except Exception as e:
             return geo_pb2.ProjectMemberResponse(success=False, error=str(e))
 
+    def UpdateProjectMemberRole(self, request, context):
+        project_id = (request.project_id or '').strip()
+        username = (request.username or '').strip()
+        new_role = (request.new_role or '').strip()
+        requester = (request.requester or '').strip()
+        if not project_id or not username or not new_role or not requester:
+            return geo_pb2.ProjectMemberResponse(success=False, error="project_id, username, new_role, requester required")
+        if new_role not in ('member', 'admin'):
+            return geo_pb2.ProjectMemberResponse(success=False, error="role must be 'member' or 'admin'")
+        try:
+            with get_pool().connection() as conn:
+                # Check requester permissions
+                requester_row = conn.execute(
+                    """
+                    SELECT role FROM project_members
+                    WHERE project_id = %s::uuid AND username = %s
+                    """,
+                    (project_id, requester)
+                ).fetchone()
+                if not requester_row or requester_row['role'] not in ('owner', 'admin'):
+                    return geo_pb2.ProjectMemberResponse(success=False, error="only admins can change roles")
+
+                # Check target member exists and get current role
+                target_row = conn.execute(
+                    """
+                    SELECT role FROM project_members
+                    WHERE project_id = %s::uuid AND username = %s
+                    """,
+                    (project_id, username)
+                ).fetchone()
+                if not target_row:
+                    return geo_pb2.ProjectMemberResponse(success=False, error="member not found")
+
+                # Cannot change owner role (use PromoteProjectOwner instead)
+                if target_row['role'] == 'owner':
+                    return geo_pb2.ProjectMemberResponse(success=False, error="cannot change owner role")
+
+                # Admins can only promote members to admin, not demote other admins
+                if requester_row['role'] == 'admin' and target_row['role'] == 'admin' and new_role == 'member':
+                    return geo_pb2.ProjectMemberResponse(success=False, error="admins cannot demote other admins")
+
+                # Update role
+                conn.execute(
+                    """
+                    UPDATE project_members SET role = %s
+                    WHERE project_id = %s::uuid AND username = %s
+                    """,
+                    (new_role, project_id, username)
+                )
+                conn.commit()
+            return geo_pb2.ProjectMemberResponse(success=True, error='')
+        except Exception as e:
+            return geo_pb2.ProjectMemberResponse(success=False, error=str(e))
+
     def EnrichPolygon(self, request, context):
         """Enrich a polygon with OSM data and custom POIs blended together"""
         coords = [(coord.lng, coord.lat) for coord in request.coordinates]

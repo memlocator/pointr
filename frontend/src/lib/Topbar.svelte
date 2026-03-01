@@ -189,6 +189,20 @@
     return true
   }
 
+  async function updateMemberRole(projectId, username, newRole) {
+    const response = await apiFetch(`/api/projects/${projectId}/members/${encodeURIComponent(username)}/role`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: newRole })
+    })
+    if (!response.ok) {
+      const err = await response.json()
+      alert(err.detail || 'Failed to update role')
+      return false
+    }
+    return true
+  }
+
   function getStatusColor(status) {
     if (!status) return 'bg-gray-500'
     if (status === 'healthy' || status === 'online') return 'bg-green-500'
@@ -883,34 +897,59 @@
               <div class="flex items-center justify-between px-2 py-1.5 border-b border-gray-700 last:border-b-0">
                 <div class="text-xs text-gray-200">{m.username} <span class="text-[10px] text-gray-500 ml-2">{displayRole(m.role)}</span></div>
                 {#if isAdminRole(editProject.role) && m.role !== 'owner'}
-                  {#if editProject.role === 'owner' && m.username !== currentUser?.user}
+                  <div class="flex items-center gap-1">
+                    {#if editProject.role === 'owner' && m.username !== currentUser?.user}
+                      <button
+                        onclick={async () => {
+                          const ok = confirm(`Transfer ownership to ${m.username}? You will become admin.`)
+                          if (!ok) return
+                          const success = await transferOwner(editProject.id, m.username)
+                          if (success) {
+                            editMembers = editMembers.map(x => x.username === m.username ? { ...x, role: 'owner' } : { ...x, role: x.role === 'owner' ? 'admin' : x.role })
+                            await fetchProjects()
+                          }
+                        }}
+                        class="text-[10px] px-2 py-0.5 border border-amber-500 text-amber-300 hover:bg-amber-500/10"
+                        title="Transfer ownership"
+                      >MAKE OWNER</button>
+                    {/if}
+                    {#if m.role === 'member'}
+                      <button
+                        onclick={async () => {
+                          const success = await updateMemberRole(editProject.id, m.username, 'admin')
+                          if (success) {
+                            editMembers = editMembers.map(x => x.username === m.username ? { ...x, role: 'admin' } : x)
+                          }
+                        }}
+                        class="text-[10px] px-2 py-0.5 border border-blue-500 text-blue-300 hover:bg-blue-500/10"
+                        title="Promote to admin"
+                      >MAKE ADMIN</button>
+                    {:else if m.role === 'admin' && editProject.role === 'owner'}
+                      <button
+                        onclick={async () => {
+                          const success = await updateMemberRole(editProject.id, m.username, 'member')
+                          if (success) {
+                            editMembers = editMembers.map(x => x.username === m.username ? { ...x, role: 'member' } : x)
+                          }
+                        }}
+                        class="text-[10px] px-2 py-0.5 border border-gray-500 text-gray-300 hover:bg-gray-500/10"
+                        title="Demote to member"
+                      >DEMOTE</button>
+                    {/if}
                     <button
                       onclick={async () => {
-                        const ok = confirm(`Transfer ownership to ${m.username}? You will become admin.`)
-                        if (!ok) return
-                        const success = await transferOwner(editProject.id, m.username)
-                        if (success) {
-                          editMembers = editMembers.map(x => x.username === m.username ? { ...x, role: 'owner' } : { ...x, role: x.role === 'owner' ? 'admin' : x.role })
-                          await fetchProjects()
-                        }
+                        await removeMember(editProject.id, m.username)
+                        editMembers = editMembers.filter(x => x.username !== m.username)
+                        await fetchProjects()
                       }}
-                      class="text-[10px] px-2 py-0.5 border border-amber-500 text-amber-300 hover:bg-amber-500/10"
-                      title="Transfer ownership"
-                    >MAKE OWNER</button>
-                  {/if}
-                  <button
-                    onclick={async () => {
-                      await removeMember(editProject.id, m.username)
-                      editMembers = editMembers.filter(x => x.username !== m.username)
-                      await fetchProjects()
-                    }}
-                    class="w-5 h-5 flex items-center justify-center text-gray-500 hover:text-red-400 hover:bg-gray-700"
-                    title="Remove member"
-                  >
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-                      <line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/>
-                    </svg>
-                  </button>
+                      class="w-5 h-5 flex items-center justify-center text-gray-500 hover:text-red-400 hover:bg-gray-700"
+                      title="Remove member"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                        <line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/>
+                      </svg>
+                    </button>
+                  </div>
                 {/if}
               </div>
             {/each}

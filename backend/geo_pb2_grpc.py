@@ -89,6 +89,11 @@ class GeoDataServiceStub(object):
                 request_serializer=geo__pb2.PromoteProjectOwnerRequest.SerializeToString,
                 response_deserializer=geo__pb2.ProjectMemberResponse.FromString,
                 _registered_method=True)
+        self.UpdateProjectMemberRole = channel.unary_unary(
+                '/geo.GeoDataService/UpdateProjectMemberRole',
+                request_serializer=geo__pb2.UpdateProjectMemberRoleRequest.SerializeToString,
+                response_deserializer=geo__pb2.ProjectMemberResponse.FromString,
+                _registered_method=True)
         self.AddCustomPOI = channel.unary_unary(
                 '/geo.GeoDataService/AddCustomPOI',
                 request_serializer=geo__pb2.AddCustomPOIRequest.SerializeToString,
@@ -230,6 +235,12 @@ class GeoDataServiceServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def PromoteProjectOwner(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UpdateProjectMemberRole(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -383,6 +394,11 @@ def add_GeoDataServiceServicer_to_server(servicer, server):
             'PromoteProjectOwner': grpc.unary_unary_rpc_method_handler(
                     servicer.PromoteProjectOwner,
                     request_deserializer=geo__pb2.PromoteProjectOwnerRequest.FromString,
+                    response_serializer=geo__pb2.ProjectMemberResponse.SerializeToString,
+            ),
+            'UpdateProjectMemberRole': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateProjectMemberRole,
+                    request_deserializer=geo__pb2.UpdateProjectMemberRoleRequest.FromString,
                     response_serializer=geo__pb2.ProjectMemberResponse.SerializeToString,
             ),
             'AddCustomPOI': grpc.unary_unary_rpc_method_handler(
@@ -757,6 +773,33 @@ class GeoDataService(object):
             target,
             '/geo.GeoDataService/PromoteProjectOwner',
             geo__pb2.PromoteProjectOwnerRequest.SerializeToString,
+            geo__pb2.ProjectMemberResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UpdateProjectMemberRole(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/geo.GeoDataService/UpdateProjectMemberRole',
+            geo__pb2.UpdateProjectMemberRoleRequest.SerializeToString,
             geo__pb2.ProjectMemberResponse.FromString,
             options,
             channel_credentials,

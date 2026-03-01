@@ -776,6 +776,31 @@ async def transfer_project_owner(project_id: str, payload: ProjectMembersRequest
     except grpc.RpcError as e:
         raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
 
+@app.patch("/api/projects/{project_id}/members/{username}/role", tags=["auth"], summary="Update member role")
+async def update_member_role(project_id: str, username: str, payload: dict, request: Request):
+    """Update a member's role between 'member' and 'admin'. Requires admin or owner permissions."""
+    new_role = payload.get("role")
+    if not new_role or new_role not in ("member", "admin"):
+        raise HTTPException(status_code=400, detail="role must be 'member' or 'admin'")
+    try:
+        with get_geo_channel() as channel:
+            stub = geo_pb2_grpc.GeoDataServiceStub(channel)
+            resp = stub.UpdateProjectMemberRole(
+                geo_pb2.UpdateProjectMemberRoleRequest(
+                    project_id=project_id,
+                    username=username,
+                    new_role=new_role,
+                    requester=request.state.user
+                )
+            )
+            if not resp.success:
+                logger.error(f'[PROJECT MEMBER ROLE UPDATE] user="{request.state.user}" project_id="{project_id}" target="{username}" new_role="{new_role}" error="{resp.error}"')
+                raise HTTPException(status_code=400, detail=resp.error)
+            logger.info(f'[PROJECT MEMBER ROLE UPDATE] user="{request.state.user}" project_id="{project_id}" target="{username}" new_role="{new_role}"')
+            return {"success": True}
+    except grpc.RpcError as e:
+        raise HTTPException(status_code=503, detail=f"Geo service error: {e.details()}")
+
 @app.get("/api/projects/{project_id}/members", tags=["auth"], summary="List project members")
 async def list_project_members(project_id: str, request: Request):
     try:
