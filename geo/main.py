@@ -415,20 +415,29 @@ class GeoDataServicer(geo_pb2_grpc.GeoDataServiceServicer):
                 ).fetchone()
                 if not role_row:
                     return geo_pb2.ProjectMemberResponse(success=False, error="not a member")
+
+                # Removing yourself
                 if requester == username:
                     if role_row['role'] == 'owner':
                         return geo_pb2.ProjectMemberResponse(success=False, error="owner cannot leave without transfer")
+                # Removing someone else
                 else:
                     if role_row['role'] not in ('owner', 'admin'):
                         return geo_pb2.ProjectMemberResponse(success=False, error="only admins can remove members")
-                    if role_row['role'] != 'owner':
-                        return geo_pb2.ProjectMemberResponse(success=False, error="only owners can remove other members")
-                target_role = conn.execute(
-                    "SELECT role FROM project_members WHERE project_id = %s::uuid AND username = %s",
-                    (project_id, username)
-                ).fetchone()
-                if target_role and target_role['role'] == 'owner':
-                    return geo_pb2.ProjectMemberResponse(success=False, error="cannot remove owner")
+
+                    # Check target's role
+                    target_role = conn.execute(
+                        "SELECT role FROM project_members WHERE project_id = %s::uuid AND username = %s",
+                        (project_id, username)
+                    ).fetchone()
+
+                    if target_role and target_role['role'] == 'owner':
+                        return geo_pb2.ProjectMemberResponse(success=False, error="cannot remove owner")
+
+                    # Admins can only remove members, not other admins
+                    if role_row['role'] == 'admin' and target_role and target_role['role'] == 'admin':
+                        return geo_pb2.ProjectMemberResponse(success=False, error="admins cannot remove other admins")
+
                 cur = conn.execute(
                     """
                     DELETE FROM project_members

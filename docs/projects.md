@@ -64,13 +64,13 @@ This document describes how projects and access control work for Pointr data sou
 
 ## Managing Projects (UI)
 
-- **Create**: Open the project dropdown (left of `?`) and click **Create new project**.  
+- **Create**: Open the project dropdown (left of `?`) and click **Create new project**.
   You can optionally add members during creation (comma/newline separated list).
 
-- **Edit members**: Click the ✎ icon next to a project (owners only).  
-  Add or remove members in the modal. Owners cannot be removed.
+- **Edit members**: Click the ✎ icon next to a project (admins and owners only).
+  Add or remove members in the modal. Owners cannot be removed. Admins cannot remove other admins.
 
-- **Delete**: Click the ✕ icon next to a project (owners only), then confirm.  
+- **Delete**: Click the ✕ icon next to a project (owners only), then confirm.
   Deleting a project removes all its project-scoped data (custom POIs, custom areas, uploaded sources).
 
 ## Access Model (Read)
