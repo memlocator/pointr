@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 import uvicorn
 import grpc
 import geo_pb2
@@ -14,10 +14,18 @@ import json
 import asyncio
 import logging
 import time
+import re
 from config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Reusable validator for XSS prevention
+def sanitize_html(v: str) -> str:
+    """Prevent HTML/script injection by blocking angle brackets"""
+    if '<' in v or '>' in v:
+        raise ValueError('HTML tags not allowed')
+    return v.strip()
 
 tags_metadata = [
     {
@@ -171,6 +179,11 @@ class PolygonRequest(BaseModel):
     sources: list[str] = []
     project_id: str | None = None
 
+    @field_validator('sources')
+    @classmethod
+    def validate_sources(cls, v: list[str]) -> list[str]:
+        return [sanitize_html(source) for source in v]
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -209,14 +222,29 @@ class EnrichmentResponse(BaseModel):
 class CreateProjectRequest(BaseModel):
     name: str
 
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        return sanitize_html(v)
+
 class ProjectMembersRequest(BaseModel):
     usernames: list[str]
     role: str = "member"
+
+    @field_validator('usernames')
+    @classmethod
+    def validate_usernames(cls, v: list[str]) -> list[str]:
+        return [sanitize_html(username) for username in v]
 
 # Recon models
 class ReconRequest(BaseModel):
     domains: list[str]
     silent_mode: bool = False
+
+    @field_validator('domains')
+    @classmethod
+    def validate_domains(cls, v: list[str]) -> list[str]:
+        return [sanitize_html(domain) for domain in v]
 
     model_config = {
         "json_schema_extra": {
@@ -311,6 +339,11 @@ class CustomPOIRequest(BaseModel):
     tags: dict = {}
     project_id: str | None = None
 
+    @field_validator('name', 'category', 'description', 'phone', 'website')
+    @classmethod
+    def validate_text_fields(cls, v: str) -> str:
+        return sanitize_html(v)
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -345,6 +378,11 @@ class CustomAreaRequest(BaseModel):
     metadata: dict = {}
     project_id: str | None = None
 
+    @field_validator('name', 'description')
+    @classmethod
+    def validate_text_fields(cls, v: str) -> str:
+        return sanitize_html(v)
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -378,6 +416,11 @@ class UpdateCustomPOIRequest(BaseModel):
     website: str = ''
     project_id: str | None = None
 
+    @field_validator('name', 'category', 'description', 'phone', 'website')
+    @classmethod
+    def validate_text_fields(cls, v: str) -> str:
+        return sanitize_html(v)
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -395,6 +438,11 @@ class UpdateCustomAreaRequest(BaseModel):
     description: str = ''
     project_id: str | None = None
 
+    @field_validator('name', 'description')
+    @classmethod
+    def validate_text_fields(cls, v: str) -> str:
+        return sanitize_html(v)
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -409,6 +457,11 @@ class UploadSourceRequest(BaseModel):
     name: str
     geojson: str
     project_id: str | None = None
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        return sanitize_html(v)
 
     model_config = {
         "json_schema_extra": {
@@ -456,10 +509,20 @@ class RouteStop(BaseModel):
     name: str = ''
     description: str = ''
 
+    @field_validator('name', 'description')
+    @classmethod
+    def validate_text_fields(cls, v: str) -> str:
+        return sanitize_html(v)
+
 class SaveRouteRequest(BaseModel):
     name: str
     route_type: str = 'road'
     stops: list[RouteStop]
+
+    @field_validator('name', 'route_type')
+    @classmethod
+    def validate_text_fields(cls, v: str) -> str:
+        return sanitize_html(v)
 
 class SavedRouteResponse(BaseModel):
     id: str
